@@ -1953,7 +1953,7 @@ fn terminate_multi_worker(
 /// 在 Windows 上按路径启动 MSIX 包内 exe 会丢包身份，进程秒退、CDP 端口永不监听，
 /// 而父进程看不到任何失败信号。这里显式确认调试端口可用，并把结论落盘给父进程，
 /// 让界面显示「启动失败」而不是「运行中」。
-pub fn run_codex_multi_worker(options_path: &Path) -> anyhow::Result<()> {
+pub fn run_codex_multi_worker(options_path: &Path, resume_only: bool) -> anyhow::Result<()> {
     let options: CodexMultiWorkerOptions = serde_json::from_slice(&std::fs::read(options_path)?)?;
 
     // 状态目录以 worker 自己的 options 为准，并且**不用** `set_var` 改进程环境：
@@ -1984,7 +1984,13 @@ pub fn run_codex_multi_worker(options_path: &Path) -> anyhow::Result<()> {
         codex_home: std::env::var_os("CODEX_HOME").map(PathBuf::from),
         sqlite_home: std::env::var_os("CODEX_SQLITE_HOME").map(PathBuf::from),
     };
-    let receipt = match codex_plus_launcher::start_with_receipt(launch_options) {
+    let launch = if resume_only {
+        codex_plus_launcher::resume_with_receipt(launch_options)
+            .and_then(|receipt| receipt.ok_or_else(|| anyhow::anyhow!("Codex 实例已退出，不能恢复 worker")))
+    } else {
+        codex_plus_launcher::start_with_receipt(launch_options)
+    };
+    let receipt = match launch {
         Ok(receipt) => receipt,
         Err(error) => {
             let _ = write_multi_launch_result(

@@ -350,6 +350,18 @@ pub struct LaunchReceipt {
 /// 与 start 相同，但只从已就绪的本进程会话返回实际端口，不读取旧状态文件猜测。
 pub fn start_with_receipt(options: LaunchOptions) -> Result<LaunchReceipt> {
     start(options)?;
+    current_launch_receipt()
+}
+
+/// 升级多开 worker 时只重新接管现有实例；端点不存在则不启动 Codex。
+pub fn resume_with_receipt(options: LaunchOptions) -> Result<Option<LaunchReceipt>> {
+    if !resume_if_running(options)? {
+        return Ok(None);
+    }
+    current_launch_receipt().map(Some)
+}
+
+fn current_launch_receipt() -> Result<LaunchReceipt> {
     let probe = session_probe_slot()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -1477,6 +1489,17 @@ impl BridgeDataService for LauncherDataService {
     }
 
     async fn thread_usage_live(&self, session: SessionRef) -> anyhow::Result<Value> {
+        if session
+            .host_id
+            .as_deref()
+            .is_some_and(|host| host != "local")
+        {
+            return tokio::task::spawn_blocking(move || {
+                codex_plus_data::remote_usage::read_remote_usage(&session)
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("remote usage task failed"));
+        }
         let adapter = self.storage_adapter();
         tokio::task::spawn_blocking(move || adapter.codex_thread_usage_live(&session))
             .await
@@ -1749,7 +1772,6 @@ impl BridgeRuntimeService for LauncherRuntimeService {
     async fn codex_model_catalog(&self) -> anyhow::Result<Value> {
         Ok(codex_plus_core::model_catalog::read_codex_model_catalog().await)
     }
-
 }
 
 async fn inject_with_context(
@@ -2224,6 +2246,14 @@ mod tests {
                 ..Default::default()
             })
             .unwrap()
+        );
+        assert!(
+            resume_with_receipt(LaunchOptions {
+                debug_port: port,
+                ..Default::default()
+            })
+            .unwrap()
+            .is_none()
         );
     }
 

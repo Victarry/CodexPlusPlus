@@ -14214,8 +14214,8 @@
   function codexPlusUsageText() {
     const language = (document.documentElement?.lang || navigator.language || "").toLowerCase();
     return language.startsWith("zh")
-      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, activity: (turns, current, total) => `会话 ${turns} 轮 · 模型 本轮 ${current} / 累计 ${total}`, tools: (current, total) => `工具 本轮 ${current} / 累计 ${total}`, scanning: "会话统计中…", countsHint: "轮数按本地日志 turn_id 去重；模型次数为有用量记录的已完成模型调用，不含工具执行、失败或网络重试。≥ 表示历史用量不完整，仅能给出下界；— 表示缺少可靠轮次或统计数据。", toolsHint: "工具次数为模型发起的外层工具请求，按 call_id 去重（内置服务端工具使用条目 id）；失败或取消的工具请求也计入。输出、界面完成事件和批量内部子步骤不重复计数。≥ 表示日志记录不完整，仅能给出下界。", aria: "用量状态栏" }
-      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, activity: (turns, current, total) => `${turns} turns · Model calls ${current} / ${total}`, tools: (current, total) => `Tool calls ${current} / ${total}`, scanning: "Counting session…", countsHint: "Turns are distinct local turn IDs. Calls are completed model calls with usage, excluding tools, failures and network retries. ≥ means a lower bound from incomplete usage; — means reliable data is unavailable.", toolsHint: "Current turn / session total. Model-visible outer tool requests, deduplicated by call_id (item ID for built-in server tools), including failed/cancelled requests. Outputs, UI completion events and internal batch steps are not counted again. ≥ indicates a lower bound from incomplete records.", aria: "Usage status line" };
+      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, activity: (turns, current, total) => `会话 ${turns} 轮 · 模型 本轮 ${current} / 累计 ${total}`, tools: (current, total) => `工具 本轮 ${current} / 累计 ${total}`, scanning: "会话统计中…", countsHint: "轮数按所选主机会话日志 turn_id 去重；模型次数为有用量记录的已完成模型调用，不含工具执行、失败或网络重试。≥ 表示历史用量不完整，仅能给出下界；— 表示缺少可靠轮次或统计数据。", toolsHint: "工具次数为模型发起的外层工具请求，按 call_id 去重（内置服务端工具使用条目 id）；失败或取消的工具请求也计入。输出、界面完成事件和批量内部子步骤不重复计数。≥ 表示日志记录不完整，仅能给出下界。", aria: "用量状态栏" }
+      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, activity: (turns, current, total) => `${turns} turns · Model calls ${current} / ${total}`, tools: (current, total) => `Tool calls ${current} / ${total}`, scanning: "Counting session…", countsHint: "Turns are distinct turn IDs on the selected host. Calls are completed model calls with usage, excluding tools, failures and network retries. ≥ means a lower bound from incomplete usage; — means reliable data is unavailable.", toolsHint: "Current turn / session total. Model-visible outer tool requests, deduplicated by call_id (item ID for built-in server tools), including failed/cancelled requests. Outputs, UI completion events and internal batch steps are not counted again. ≥ indicates a lower bound from incomplete records.", aria: "Usage status line" };
   }
 
   function codexPlusUsageInstallStyle() {
@@ -14295,6 +14295,9 @@
     const metrics = document.createElement("span");
     metrics.className = "codex-plus-usage-metrics";
     const parts = {
+      tokens: codexPlusUsageItem(node, "tokens", "tokens", codexPlusUsageIcon([
+        { tag: "path", attrs: { d: "M3 3h10M8 3v10M5 13h6" } },
+      ]).svg),
       activity: codexPlusUsageItem(node, "activity", "activity", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M13 5a5 5 0 1 0 0 6M13 2v4H9" } },
       ]).svg),
@@ -14342,26 +14345,35 @@
    * 新会话草稿的 id 形如 `local:client-new-thread:<uuid>`，还没有 rollout，直接当作无会话。
    */
   function codexPlusUsageThreadId(card) {
-    const composerRoot = card?.closest("[data-codex-composer-root]");
-    const fromComposer = composerRoot
-      ?.querySelector("[data-above-composer-conversation-id]")
-      ?.getAttribute("data-above-composer-conversation-id");
-    const inThread = composerRoot?.getAttribute("data-composer-placement") === "thread";
-    const fromSidebar = inThread
-      ? document
-        .querySelector('[data-app-action-sidebar-thread-selected="true"][data-app-action-sidebar-thread-id]')
-        ?.getAttribute("data-app-action-sidebar-thread-id")
-      : null;
-    const id = String(fromComposer || fromSidebar || "").replace(/^local:/, "").trim();
-    if (!id || id === "__proto__" || id === "prototype" || id === "constructor") return "";
-    // 同一个 UUID 可能同时出现在本机与 SSH 副本中；已确认远端归属时不能读本机副本。
+    const root = card?.closest("[data-codex-composer-root]");
+    const inThread = root?.getAttribute("data-composer-placement") === "thread";
     const selected = document.querySelector('[data-app-action-sidebar-thread-selected="true"][data-app-action-sidebar-thread-id]');
+    const raw = root?.querySelector("[data-above-composer-conversation-id]")?.getAttribute("data-above-composer-conversation-id")
+      || (inThread ? selected?.getAttribute("data-app-action-sidebar-thread-id") : "");
+    const parse = (value) => {
+      value = String(value || "").trim();
+      if (!value || value.includes("client-new-thread")) return null;
+      const scoped = value.match(/^(.+):([A-Za-z0-9_.-]{8,128})$/);
+      const id = scoped ? scoped[2] : value;
+      if (!["__proto__", "prototype", "constructor"].includes(id) && /^[A-Za-z0-9_.-]{8,128}$/.test(id)) {
+        return { id, host: scoped?.[1] || "" };
+      }
+      return null;
+    };
+    const current = parse(raw);
+    if (!current) return "";
     if (selected && typeof sessionRefFromRow === "function") {
       const ref = sessionRefFromRow(selected);
-      if (String(ref?.session_id || "").replace(/^local:/, "") === id
-        && ref.host_id && ref.host_id !== "local") return "";
+      const row = parse(ref?.session_id);
+      if (row?.id === current.id) {
+        const host = ref.host_id || row.host;
+        if (current.host && host && current.host !== host) return "";
+        current.host ||= host || "";
+      }
     }
-    return /^[A-Za-z0-9_.-]{8,128}$/.test(id) ? id : "";
+    // 裸 UUID 不能证明它属于本机；只接受与当前会话配对的主机归属。
+    if (!current.host || current.host.length > 256 || /[\x00-\x1f]/.test(current.host)) return "";
+    return current.host === "local" ? current.id : `${current.host}\x1f${current.id}`;
   }
 
   function codexPlusUsageEnsureNode(card) {
@@ -14497,11 +14509,20 @@
       : text.activity(count(activity?.turns), count(activity?.turn_calls, activity?.calls_complete === false), count(activity?.total_calls, activity?.calls_complete === false));
     const toolsActivity = activity?.scan_complete === true ? activity : null;
     const toolsText = text.tools(count(toolsActivity?.turn_tool_calls, toolsActivity?.tool_calls_complete === false), count(toolsActivity?.total_tool_calls, toolsActivity?.tool_calls_complete === false));
+    const totalTokens = activity?.cumulative_tokens;
+    const compactTokens = (value) => value >= 1e9 ? `${(value / 1e9).toFixed(2)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(2)}M` : value >= 1e3 ? `${(value / 1e3).toFixed(1)}K` : String(value);
+    const tokensText = Number.isSafeInteger(totalTokens) && totalTokens >= 0 ? `会话 ${compactTokens(totalTokens)} tok` : "会话 — tok";
+    const scope = codexPlusUsageState.threadId.split("\x1f")[0];
+    const sourceHost = codexPlusUsageState.threadId.includes("\x1f") ? scope : "local";
+    const sourceText = sourceHost === "local" ? "本机" : sourceHost.replace(/^remote-ssh-discovered:/, "");
     // 指纹一样就不写 DOM：每秒一次无意义赋值会让 Codex 的 MutationObserver 空转。
-    const fingerprint = [speed, cache, context, stale, contextWindow, countsText, toolsText].join("|");
+    const fingerprint = [speed, cache, context, stale, contextWindow, countsText, toolsText, tokensText, sourceText, codexPlusUsageState.failures].join("|");
     if (fingerprint === codexPlusUsageState.lastFingerprint) return;
     codexPlusUsageState.lastFingerprint = fingerprint;
 
+    parts.tokens.value.textContent = tokensText;
+    parts.tokens.item.title = `来源 ${sourceText}；原生累计输入与输出 token，输入已包含缓存读取。`;
+    node.dataset.hostId = sourceHost;
     parts.speed.value.textContent = text.speed(speed);
     parts.cache.value.textContent = text.cache(cache);
     parts.context.value.textContent = text.context(context);
@@ -14516,13 +14537,16 @@
     node.dataset.stale = String(stale);
     node.setAttribute("title", [
       `生成速度 ${format(speed)} tok/s`,
+      `来源 ${sourceText}`,
+      tokensText,
+      codexPlusUsageState.failures ? "上次读取失败，暂保留该会话缓存" : "",
       countsText,
       toolsText,
       `缓存命中 ${format(cache)}`,
       `上下文占用 ${format(context)}`,
       contextWindow > 0 ? `窗口 ${contextWindow}` : "",
     ].filter(Boolean).join(" · "));
-    node.setAttribute("aria-label", `${text.aria}：${countsText}，${toolsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
+    node.setAttribute("aria-label", `${text.aria}：${tokensText}，${countsText}，${toolsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
   }
 
   function codexPlusUsageSchedule(delay) {
@@ -14603,10 +14627,14 @@
     if (codexPlusUsageState.inFlight) return null;
     codexPlusUsageState.inFlight = true;
     try {
-      const result = await postJson("/thread-usage-live", { session_id: threadId });
-      codexPlusUsageState.failures = 0;
-      if (result?.status !== "ok" || !Array.isArray(result.events)
-        || String(result.session_id || "").replace(/^local:/, "") !== threadId) return null;
+      const split = threadId.indexOf("\x1f");
+      const hostId = split < 0 ? "local" : threadId.slice(0, split);
+      const sessionId = split < 0 ? threadId : threadId.slice(split + 1);
+      const result = await postJson("/thread-usage-live", { session_id: sessionId, host_id: hostId });
+      if (result?.status !== "ok") throw new Error(result?.message || "会话统计暂不可用");
+      if (!Array.isArray(result.events) || String(result.session_id || "").replace(/^local:/, "") !== sessionId
+        || (result.host_id || "local") !== hostId) throw new Error("会话统计主机或 ID 不匹配");
+      if (codexPlusUsageState.threadId === threadId) codexPlusUsageState.failures = 0;
       return { events: result.events, activity: result.activity || null };
     } finally {
       codexPlusUsageState.inFlight = false;
@@ -14678,7 +14706,7 @@
   codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 4,
+    version: 5,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;

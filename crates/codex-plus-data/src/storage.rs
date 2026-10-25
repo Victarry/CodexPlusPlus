@@ -1264,7 +1264,7 @@ fn read_rollout_usage_window(
     Ok(())
 }
 
-fn rollout_usage_event(value: &Value, turn_id: Option<&str>) -> Option<Value> {
+pub(crate) fn rollout_usage_event(value: &Value, turn_id: Option<&str>) -> Option<Value> {
     if value.get("type").and_then(Value::as_str) != Some("event_msg") {
         return None;
     }

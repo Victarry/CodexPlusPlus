@@ -34,6 +34,7 @@ pub(crate) struct Activity {
     pub turn_tool_calls: Option<u64>,
     pub total_tool_calls: u64,
     pub tool_calls_complete: bool,
+    pub cumulative_tokens: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -82,6 +83,8 @@ struct Scanner {
     total_tool_calls: u64,
     unknown_tools: bool,
     unknown_tool_turns: bool,
+    recent_events: VecDeque<Value>,
+    cumulative_tokens: Option<u64>,
 }
 
 type SharedScanner = Arc<Mutex<Scanner>>;
@@ -153,8 +156,12 @@ impl Scanner {
         let tail_len = self.offset.min(256) as usize;
         self.tail = bytes_at(file, self.offset - tail_len as u64, tail_len)?;
         self.modified = metadata.modified().ok();
-        Ok(Activity {
-            scan_complete: self.offset >= metadata.len(),
+        Ok(self.snapshot(self.offset >= metadata.len()))
+    }
+
+    fn snapshot(&self, scan_complete: bool) -> Activity {
+        Activity {
+            scan_complete,
             turns: (!self.unknown_turns).then_some(self.turns.len() as u64),
             turn_calls: (!self.unknown_turns)
                 .then(|| {
@@ -176,7 +183,12 @@ impl Scanner {
                 .flatten(),
             total_tool_calls: self.total_tool_calls,
             tool_calls_complete: !self.unknown_tools,
-        })
+            cumulative_tokens: if scan_complete {
+                self.cumulative_tokens
+            } else {
+                None
+            },
+        }
     }
 
     fn feed(&mut self, bytes: &[u8]) {
@@ -237,6 +249,7 @@ impl Scanner {
         if !bytes.windows(11).any(|w| w == b"\"event_msg\"")
             && !bytes.windows(14).any(|w| w == b"\"turn_context\"")
             && !bytes.windows(15).any(|w| w == b"\"response_item\"")
+            && !bytes.windows(16).any(|w| w == b"\"usage_scan_gap\"")
         {
             return;
         }
@@ -247,6 +260,13 @@ impl Scanner {
             return;
         };
         let payload = &value["payload"];
+        if value["type"] == "usage_scan_gap" {
+            self.unknown_calls |= payload["models"].as_bool().unwrap_or(false);
+            self.unknown_tools |= payload["tools"].as_bool().unwrap_or(false);
+            self.unknown_turns |=
+                payload["turns"].as_bool().unwrap_or(false) && self.active_turn.is_none();
+            return;
+        }
         let turn_id = payload["turn_id"].as_str().filter(|id| !id.is_empty());
         if value["type"] == "turn_context" {
             if turn_id.is_some() {
@@ -321,6 +341,16 @@ impl Scanner {
                     return;
                 }
                 self.total_calls += 1;
+                self.cumulative_tokens =
+                    tokens.or_else(|| input.zip(output).and_then(|(a, b)| a.checked_add(b)));
+                if let Some(event) =
+                    crate::storage::rollout_usage_event(&value, self.active_turn.as_deref())
+                {
+                    self.recent_events.push_back(event);
+                    while self.recent_events.len() > 24 {
+                        self.recent_events.pop_front();
+                    }
+                }
                 if let Some(calls) = self
                     .active_turn
                     .as_ref()
@@ -380,6 +410,28 @@ impl Scanner {
             self.unknown_tool_turns = true;
             self.unknown_turns = true;
         }
+    }
+}
+
+/// SSH 端只投影元数据；本机与远端复用同一个计数器和用量事件解析器。
+#[derive(Debug, Default)]
+pub(crate) struct RemoteAccumulator {
+    scanner: Scanner,
+}
+
+impl RemoteAccumulator {
+    pub(crate) fn ingest(&mut self, records: &[Value], reset: bool, complete: bool) -> Value {
+        if reset {
+            *self = Self::default();
+        }
+        for record in records {
+            self.scanner
+                .record(&serde_json::to_vec(record).unwrap_or_default());
+        }
+        serde_json::json!({
+            "activity": self.scanner.snapshot(complete),
+            "events": if complete { self.scanner.recent_events.iter().cloned().collect::<Vec<_>>() } else { Vec::new() },
+        })
     }
 }
 

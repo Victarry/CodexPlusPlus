@@ -143,7 +143,7 @@ const STEPWISE_SCRIPT: &str = concat!(
     include_str!("../../../assets/inject/floating-panel-inject.js"),
     "\n})();\n",
 );
-pub const DIAGNOSTIC_BUILD_ID: &str = "victarry-model-tools-v1.11.2-20261025";
+pub const DIAGNOSTIC_BUILD_ID: &str = "victarry-remote-usage-v1.11.2-20261026";
 const DREAM_SKIN_RENDERER_REVISION: &str = "26-dream-skin-1.5.20";
 
 pub fn renderer_script() -> &'static str {

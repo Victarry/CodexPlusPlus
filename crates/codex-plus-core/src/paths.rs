@@ -27,6 +27,20 @@ const PENDING_MANAGER_NAVIGATION_FILE: &str = "pending-manager-navigation.json";
 /// 挪到指定位置，不依赖任何平台特有的家目录语义。
 pub const STATE_DIR_ENV: &str = "CODEX_PLUS_STATE_DIR";
 
+/// 与用户扩展共用的真实用户配置目录；worker 通过 XDG_CONFIG_HOME 显式共享。
+pub fn shared_config_dir() -> PathBuf {
+    if cfg!(windows) {
+        if let Some(path) = std::env::var_os("APPDATA") {
+            return PathBuf::from(path).join("Codex++");
+        }
+    }
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".config")))
+        .unwrap_or_else(|| PathBuf::from(".config"))
+        .join("Codex++")
+}
+
 /// 解析显式状态目录覆盖；未设置或设置为空时返回 `None`。
 pub fn state_dir_override_from(value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
     let value = value?;

@@ -209,8 +209,8 @@ test("会话 id 只认 composer 上的实时标识，新会话草稿视为无会
   );
   assert.equal(
     codexPlusUsageThreadId(card("01a1352f-f8a9-71f2-9ae4-f2de48a74d8d")),
-    "01a1352f-f8a9-71f2-9ae4-f2de48a74d8d",
-    "没有前缀时原样使用",
+    "",
+    "没有主机证据时拒绝把裸 UUID 当成本机",
   );
   // thread 里 composer 没带标识时回落侧边栏选中行。
   assert.equal(
@@ -238,6 +238,7 @@ function lifecycle() {
   let resolveRequest: (value: unknown) => void = () => {};
   let rejectRequest: (error: Error) => void = () => {};
   let requestedId = "";
+  let requestedHost = "local";
   const source = [
     ...["codexPlusUsageState", "codexPlusUsageStaleMs", "codexPlusUsageIdleIntervalMs",
       "codexPlusUsageActiveIntervalMs", "codexPlusUsageWarmupIntervalMs", "codexPlusUsageFailureLimit",
@@ -252,8 +253,9 @@ function lifecycle() {
     { hidden: false }, () => true, () => current.card, () => current.id,
     (card: unknown) => { node.previousElementSibling = card; return node; },
     (value: unknown) => renders.push(value), () => {},
-    (_path: string, payload: { session_id: string }) => {
+    (_path: string, payload: { session_id: string; host_id: string }) => {
       requestedId = payload.session_id;
+      requestedHost = payload.host_id;
       return new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; });
     }, () => {},
   );
@@ -261,8 +263,9 @@ function lifecycle() {
   return {
     ...runtime, node, renders,
     switchTo(id: string) { current = { id, card: {} }; },
-    respond(events: unknown[], activity: unknown = null) { resolveRequest({ status: "ok", session_id: requestedId, events, activity }); },
-    respondFor(sessionId: string, events: unknown[], activity: unknown) { resolveRequest({ status: "ok", session_id: sessionId, events, activity }); },
+    respond(events: unknown[], activity: unknown = null) { resolveRequest({ status: "ok", session_id: requestedId, host_id: requestedHost, events, activity }); },
+    respondFor(sessionId: string, events: unknown[], activity: unknown) { resolveRequest({ status: "ok", session_id: sessionId, host_id: requestedHost, events, activity }); },
+    respondHost(hostId: string, events: unknown[], activity: unknown) { resolveRequest({status:"ok",session_id:requestedId,host_id:hostId,events,activity}); },
     fail() { rejectRequest(new Error("bridge unavailable")); },
   };
 }
@@ -362,10 +365,10 @@ test("会话切换恢复各自的累计值，返回其他会话的数据不能�
 
 function renderHarness(language = "zh-CN") {
   const attrs = new Map<string, string>();
-  const parts = Object.fromEntries(["speed", "cache", "context", "activity", "tools"].map(key => [key, {
+  const parts = Object.fromEntries(["speed", "cache", "context", "activity", "tools", "tokens"].map(key => [key, {
     value: { textContent: "" }, item: { title: "" },
   }]));
-  const state = { node: { isConnected: true, dataset: {}, setAttribute: (key: string, value: string) => attrs.set(key, value) }, parts, lastFingerprint: "" };
+  const state = { node: { isConnected: true, dataset: {}, setAttribute: (key: string, value: string) => attrs.set(key, value) }, parts, lastFingerprint: "", threadId: "thread-a-123", failures: 0 };
   const render = new Function("document", "navigator", "codexPlusUsageState", [
     declaration("codexPlusUsageRingCircumference"), declaration("codexPlusUsageText"),
     declaration("codexPlusUsageRender"), "return codexPlusUsageRender;",
@@ -397,14 +400,14 @@ test("英文状态栏明确标注模型调用计数", () => {
   assert.match(ui.parts.activity.item.title, /completed model calls/);
 });
 
-test("已确认远端归属的同名会话不读取本机副本", () => {
+test("远端主机和会话 ID 组成独立缓存键", () => {
   const id = "01a1352f-f8a9-71f2-9ae4-f2de48a74d8d";
   const card = { closest: () => ({ getAttribute: () => "thread", querySelector: () => ({ getAttribute: () => id }) }) };
   const document = { querySelector: () => ({ getAttribute: () => id }) };
   const threadId = new Function("document", "sessionRefFromRow", `${declaration("codexPlusUsageThreadId")}\nreturn codexPlusUsageThreadId;`)(
     document, () => ({ session_id: id, host_id: "remote-ssh-discovered:dev-kth" }),
   );
-  assert.equal(threadId(card), "");
+  assert.equal(threadId(card), "remote-ssh-discovered:dev-kth\x1f" + id);
 });
 
 test("模型与工具计数分别显示，工具输出或更新不影响模型读数", () => {
@@ -421,4 +424,26 @@ test("模型与工具计数分别显示，工具输出或更新不影响模型�
   assert.match(ui.attrs.get("aria-label") || "", /工具 本轮 ≥26/);
   ui.render({ activity: { scan_complete: true, turns: 6, turn_calls: 12, total_calls: 183, calls_complete: true } });
   assert.equal(ui.parts.tools.value.textContent, "工具 本轮 — / 累计 —", "旧 helper 未提供工具计数时不能当成零");
+});
+
+test("同 UUID 的本机与两台远端会话缓存完全隔离，返回主机不匹配时拒绝数据", async () => {
+  const ui = lifecycle();
+  const local = ui.tick(); ui.respond([], activity(1, 1, 10)); await local;
+  ui.switchTo("remote-ssh-discovered:dev\x1fthread-a-123"); ui.sync();
+  assert.equal(ui.renders.at(-1), null);
+  const remote = ui.tick(); ui.respond([], activity(2, 2, 20)); await remote;
+  assert.equal(ui.renders.at(-1).activity.total_calls, 20);
+  ui.switchTo("remote-ssh-discovered:dev-kth\x1fthread-a-123"); ui.sync();
+  const kth = ui.tick(); ui.respondHost("remote-ssh-discovered:dev", [], activity(99, 99, 999)); await kth;
+  assert.equal(ui.renders.at(-1), null);
+  ui.switchTo("thread-a-123"); ui.sync();
+  assert.equal(ui.renders.at(-1).activity.total_calls, 10);
+});
+
+test("内置累计 token 与主机来源一起显示，不借用其他会话累计值", () => {
+  const ui = renderHarness();
+  ui.render({activity:{...activity(), cumulative_tokens:5300000}});
+  assert.equal(ui.parts.tokens.value.textContent,"会话 5.30M tok");
+  ui.render({activity:activity()});
+  assert.equal(ui.parts.tokens.value.textContent,"会话 — tok");
 });
