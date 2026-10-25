@@ -1529,3 +1529,20 @@ fn thread_usage_live_refuses_a_remote_host_even_if_the_id_exists_locally() {
     assert_eq!(value["events"], json!([]));
     assert!(value.get("activity").is_none());
 }
+
+#[test]
+fn thread_usage_live_reports_separate_model_and_tool_totals() {
+    let value = live_usage_from_records(&[
+        json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}),
+        live_usage_token_event(100, 1000, 0),
+        json!({"type":"response_item","payload":{"type":"function_call","call_id":"tool-1"}}),
+        json!({"type":"response_item","payload":{"type":"custom_tool_call","call_id":"tool-2"}}),
+        json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"tool-1"}}),
+        json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"tool-1"}}}),
+    ]);
+    assert_eq!(value["activity"]["turn_calls"], 1);
+    assert_eq!(value["activity"]["total_calls"], 1);
+    assert_eq!(value["activity"]["turn_tool_calls"], 2);
+    assert_eq!(value["activity"]["total_tool_calls"], 2);
+    assert_eq!(value["activity"]["tool_calls_complete"], true);
+}

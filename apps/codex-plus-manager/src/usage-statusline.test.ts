@@ -321,8 +321,9 @@ test("空数据及连续失败仍保留已有会话栏位，缓存有界", async
   assert.equal(ui.state.cache.has("thread-0"), false);
 });
 
-const activity = (turns = 6, turnCalls = 12, totalCalls = 183) => ({
+const activity = (turns = 6, turnCalls = 12, totalCalls = 183, turnTools = 26, totalTools = 420) => ({
   scan_complete: true, calls_complete: true, turns, turn_calls: turnCalls, total_calls: totalCalls,
+  turn_tool_calls: turnTools, total_tool_calls: totalTools, tool_calls_complete: true,
 });
 
 test("累计调用使用宿主扫描结果，不能用尾部事件条数代替；首个调用前仍显示新轮次", () => {
@@ -361,7 +362,7 @@ test("会话切换恢复各自的累计值，返回其他会话的数据不能�
 
 function renderHarness(language = "zh-CN") {
   const attrs = new Map<string, string>();
-  const parts = Object.fromEntries(["speed", "cache", "context", "activity"].map(key => [key, {
+  const parts = Object.fromEntries(["speed", "cache", "context", "activity", "tools"].map(key => [key, {
     value: { textContent: "" }, item: { title: "" },
   }]));
   const state = { node: { isConnected: true, dataset: {}, setAttribute: (key: string, value: string) => attrs.set(key, value) }, parts, lastFingerprint: "" };
@@ -375,15 +376,15 @@ function renderHarness(language = "zh-CN") {
 test("状态栏显示三项计数，计数变化会刷新 DOM，扫描中和不完整记录有明确标识", () => {
   const ui = renderHarness();
   ui.render({ activity: activity() });
-  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 本轮 12 次 · 累计 183 次");
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 模型 本轮 12 / 累计 183");
   assert.match(ui.parts.activity.item.title, /不含工具执行、失败或网络重试/);
   ui.render({ activity: activity(6, 13, 184) });
-  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 本轮 13 次 · 累计 184 次");
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 模型 本轮 13 / 累计 184");
   ui.render({ activity: { ...activity(), scan_complete: false } });
   assert.equal(ui.parts.activity.value.textContent, "会话统计中…");
   ui.render({ activity: { ...activity(), turns: null, turn_calls: null, calls_complete: false } });
-  assert.equal(ui.parts.activity.value.textContent, "会话 — 轮 · 本轮 — 次 · 累计 ≥183 次");
-  assert.match(ui.attrs.get("aria-label") || "", /累计 ≥183 次/);
+  assert.equal(ui.parts.activity.value.textContent, "会话 — 轮 · 模型 本轮 — / 累计 ≥183");
+  assert.match(ui.attrs.get("aria-label") || "", /累计 ≥183/);
   ui.render(null);
   assert.doesNotMatch(ui.parts.activity.value.textContent, /183/, "空会话不能保留上一个会话的计数");
   assert.match(shardSource, /flex-wrap:wrap/);
@@ -392,7 +393,7 @@ test("状态栏显示三项计数，计数变化会刷新 DOM，扫描中和不�
 test("英文状态栏明确标注模型调用计数", () => {
   const ui = renderHarness("en-US");
   ui.render({ activity: activity() });
-  assert.equal(ui.parts.activity.value.textContent, "6 turns · 12 calls this turn · 183 total calls");
+  assert.equal(ui.parts.activity.value.textContent, "6 turns · Model calls 12 / 183");
   assert.match(ui.parts.activity.item.title, /completed model calls/);
 });
 
@@ -404,4 +405,20 @@ test("已确认远端归属的同名会话不读取本机副本", () => {
     document, () => ({ session_id: id, host_id: "remote-ssh-discovered:dev-kth" }),
   );
   assert.equal(threadId(card), "");
+});
+
+test("模型与工具计数分别显示，工具输出或更新不影响模型读数", () => {
+  const ui = renderHarness();
+  ui.render({ activity: activity() });
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 模型 本轮 12 / 累计 183");
+  assert.equal(ui.parts.tools.value.textContent, "工具 本轮 26 / 累计 420");
+  assert.match(ui.parts.tools.item.title, /call_id 去重/);
+  ui.render({ activity: activity(6, 12, 183, 27, 421) });
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 模型 本轮 12 / 累计 183");
+  assert.equal(ui.parts.tools.value.textContent, "工具 本轮 27 / 累计 421");
+  ui.render({ activity: { ...activity(), tool_calls_complete: false } });
+  assert.equal(ui.parts.tools.value.textContent, "工具 本轮 ≥26 / 累计 ≥420");
+  assert.match(ui.attrs.get("aria-label") || "", /工具 本轮 ≥26/);
+  ui.render({ activity: { scan_complete: true, turns: 6, turn_calls: 12, total_calls: 183, calls_complete: true } });
+  assert.equal(ui.parts.tools.value.textContent, "工具 本轮 — / 累计 —", "旧 helper 未提供工具计数时不能当成零");
 });

@@ -14,7 +14,7 @@
 - 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-activity-v1.11.2-20261025`。应用标识与配置路径保持原值，以延续现有配置。
+应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-model-tools-v1.11.2-20261025`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -50,3 +50,9 @@ cargo test --locked --release -p codex-plus-data --lib usage_activity
 cargo test --locked --release -p codex-plus-data --test storage_adapter
 node --test apps/codex-plus-manager/src/usage-statusline.test.ts
 ```
+
+## 分开显示模型与工具调用
+
+状态栏分别显示 `模型 本轮 12 / 累计 183` 与 `工具 本轮 26 / 累计 420`。模型数仍来自去重后的真实输入 / 输出用量；工具数来自模型可见的外层 `function_call` / `custom_tool_call` 等工具请求，按 `call_id` 去重，内置搜索 / 生图等服务端工具按条目 ID 去重。
+
+工具输出、`item_completed` 界面镜像、重复通知和批量执行内部子步骤不额外累加；失败或取消的外层工具请求仍计为一次工具请求。工具数与模型数完全独立，一个模型响应可以发出多个工具请求。旧 helper 缺少工具字段时显示 `—`，缺 ID 或条目过大无法完整统计时显示 `≥` 下界。

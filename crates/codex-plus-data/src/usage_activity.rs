@@ -1,8 +1,8 @@
 //! 按 rollout 增量统计任务轮次和有用量记录的已完成模型调用。
-//! 不统计工具调用，不把重复 token_count / 限额快照当成新请求。
+//! 模型与工具请求分别计数，不把重复 token_count / 限额快照或工具输出重复累计。
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{File, Metadata};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -13,6 +13,16 @@ const CACHE_LIMIT: usize = 32;
 const SCAN_BYTES: u64 = 8 * 1024 * 1024;
 const LINE_LIMIT: usize = 256 * 1024;
 const TURN_LIMIT: usize = 100_000;
+const TOOL_LIMIT: usize = 200_000;
+
+const TOOL_KINDS: [&str; 6] = [
+    "function_call",
+    "custom_tool_call",
+    "local_shell_call",
+    "tool_search_call",
+    "web_search_call",
+    "image_generation_call",
+];
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Activity {
@@ -21,6 +31,15 @@ pub(crate) struct Activity {
     pub turn_calls: Option<u64>,
     pub total_calls: u64,
     pub calls_complete: bool,
+    pub turn_tool_calls: Option<u64>,
+    pub total_tool_calls: u64,
+    pub tool_calls_complete: bool,
+}
+
+#[derive(Debug, Default)]
+struct TurnCounts {
+    model: u64,
+    tools: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -52,13 +71,17 @@ struct Scanner {
     tail: Vec<u8>,
     line: Vec<u8>,
     oversized: bool,
-    turns: HashMap<String, u64>,
+    turns: HashMap<String, TurnCounts>,
     active_turn: Option<String>,
     display_turn: Option<String>,
     total_calls: u64,
     last_usage: Option<[u64; 3]>,
     unknown_turns: bool,
     unknown_calls: bool,
+    tool_ids: HashSet<String>,
+    total_tool_calls: u64,
+    unknown_tools: bool,
+    unknown_tool_turns: bool,
 }
 
 type SharedScanner = Arc<Mutex<Scanner>>;
@@ -138,11 +161,21 @@ impl Scanner {
                     self.display_turn
                         .as_ref()
                         .and_then(|id| self.turns.get(id))
-                        .copied()
+                        .map(|counts| counts.model)
                 })
                 .flatten(),
             total_calls: self.total_calls,
             calls_complete: !self.unknown_calls,
+            turn_tool_calls: (!self.unknown_turns && !self.unknown_tool_turns)
+                .then(|| {
+                    self.display_turn
+                        .as_ref()
+                        .and_then(|id| self.turns.get(id))
+                        .map(|counts| counts.tools)
+                })
+                .flatten(),
+            total_tool_calls: self.total_tool_calls,
+            tool_calls_complete: !self.unknown_tools,
         })
     }
 
@@ -158,6 +191,14 @@ impl Scanner {
                         && self.line.windows(14).any(|w| w == b"\"turn_context\"")
                     {
                         self.unknown_turns = true;
+                    }
+                    if TOOL_KINDS.iter().any(|kind| {
+                        let pattern = format!("\"{kind}\"");
+                        self.line
+                            .windows(pattern.len())
+                            .any(|part| part == pattern.as_bytes())
+                    }) {
+                        self.unknown_tools = true;
                     }
                 } else {
                     let line = std::mem::take(&mut self.line);
@@ -195,12 +236,14 @@ impl Scanner {
     fn record(&mut self, bytes: &[u8]) {
         if !bytes.windows(11).any(|w| w == b"\"event_msg\"")
             && !bytes.windows(14).any(|w| w == b"\"turn_context\"")
+            && !bytes.windows(15).any(|w| w == b"\"response_item\"")
         {
             return;
         }
         let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
             self.unknown_calls = true;
             self.unknown_turns = true;
+            self.unknown_tools = true;
             return;
         };
         let payload = &value["payload"];
@@ -208,6 +251,15 @@ impl Scanner {
         if value["type"] == "turn_context" {
             if turn_id.is_some() {
                 self.select_turn(turn_id);
+            }
+            return;
+        }
+        if value["type"] == "response_item" {
+            if payload["type"]
+                .as_str()
+                .is_some_and(|kind| TOOL_KINDS.contains(&kind))
+            {
+                self.record_tool(payload);
             }
             return;
         }
@@ -274,13 +326,59 @@ impl Scanner {
                     .as_ref()
                     .and_then(|id| self.turns.get_mut(id))
                 {
-                    *calls += 1;
+                    calls.model += 1;
                 } else {
                     self.display_turn = None;
                     self.unknown_turns = true;
                 }
             }
             _ => {}
+        }
+    }
+
+    fn record_tool(&mut self, payload: &Value) {
+        // 只读模型可见的外层请求。function/custom 输出及 item_completed 镜像均不计数。
+        let mut identities = Vec::new();
+        if let Some(id) = payload["call_id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .filter(|id| id.len() <= 500)
+        {
+            identities.push(format!("call:{id}"));
+        }
+        if let Some(id) = payload["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && id.len() <= 500)
+        {
+            identities.push(format!("item:{id}"));
+        }
+        if identities.is_empty() {
+            self.unknown_tools = true;
+            return;
+        }
+        let duplicate = identities.iter().any(|id| self.tool_ids.contains(id));
+        let new_ids = identities
+            .iter()
+            .filter(|id| !self.tool_ids.contains(*id))
+            .count();
+        if self.tool_ids.len() + new_ids > TOOL_LIMIT {
+            self.unknown_tools = true;
+            return;
+        }
+        self.tool_ids.extend(identities);
+        if duplicate {
+            return;
+        }
+        self.total_tool_calls += 1;
+        if let Some(counts) = self
+            .active_turn
+            .as_ref()
+            .and_then(|id| self.turns.get_mut(id))
+        {
+            counts.tools += 1;
+        } else {
+            self.unknown_tool_turns = true;
+            self.unknown_turns = true;
         }
     }
 }
@@ -460,5 +558,62 @@ mod tests {
         let mut file = OpenOptions::new().append(true).open(&a).unwrap();
         writeln!(file, "{}", usage(2)).unwrap();
         assert_eq!(read_activity(&a).unwrap().total_calls, 2);
+    }
+
+    #[test]
+    fn model_and_tool_counts_are_independent_and_outputs_and_ui_mirrors_are_not_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout.jsonl");
+        fs::write(&path, lines(&[
+            start("one"), usage(1),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"a","id":"item-a"}}),
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"a"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"a","id":"replayed-a"}}),
+            json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"a"}}}),
+            json!({"type":"response_item","payload":{"type":"custom_tool_call","call_id":"b"}}),
+            json!({"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"b"}}),
+            json!({"type":"response_item","payload":{"type":"web_search_call","id":"web-1","status":"in_progress"}}),
+            json!({"type":"response_item","payload":{"type":"web_search_call","id":"web-1","status":"completed"}}),
+            start("two"),
+            json!({"type":"response_item","payload":{"type":"local_shell_call","id":"shell-1"}}),
+            json!({"type":"response_item","payload":{"type":"local_shell_call","id":"shell-1","call_id":"shell-call"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"failed-tool","status":"failed"}}),
+            usage(2),
+        ])).unwrap();
+        let mut scanner = Scanner::default();
+        let counts = read(&mut scanner, &path);
+        assert_eq!(
+            (counts.turns, counts.turn_calls, counts.total_calls),
+            (Some(2), Some(1), 2)
+        );
+        assert_eq!(
+            (counts.turn_tool_calls, counts.total_tool_calls),
+            (Some(2), 5)
+        );
+        assert!(counts.calls_complete && counts.tool_calls_complete);
+        assert_eq!(read(&mut scanner, &path).total_tool_calls, 5);
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{}", start("three")).unwrap();
+        let next = read(&mut scanner, &path);
+        assert_eq!((next.turn_calls, next.turn_tool_calls), (Some(0), Some(0)));
+    }
+
+    #[test]
+    fn unidentified_or_oversized_tool_requests_report_a_lower_bound_without_polluting_model_counts()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout.jsonl");
+        fs::write(&path, lines(&[
+            start("one"), usage(1),
+            json!({"type":"response_item","payload":{"type":"function_call"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"large","arguments":"x".repeat(LINE_LIMIT+1)}}),
+            json!({"type":"response_item","payload":{"type":"tool_search_call","call_id":"search"}}),
+            json!({"type":"response_item","payload":{"type":"image_generation_call","id":"image-1","result":"small fixture"}}),
+        ])).unwrap();
+        let counts = read(&mut Scanner::default(), &path);
+        assert_eq!(counts.total_calls, 1);
+        assert!(counts.calls_complete);
+        assert_eq!(counts.total_tool_calls, 2);
+        assert!(!counts.tool_calls_complete);
     }
 }

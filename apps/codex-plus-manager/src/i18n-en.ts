@@ -886,7 +886,7 @@ export const EN_PLAIN: Record<string, string> = {
   "切换到深色": "Switch to dark",
   "切换对话保留位置": "Preserve scroll position across threads",
   "用量状态栏": "Usage status line",
-  "在输入框下方显示会话轮数、模型调用次数、生成速度、缓存命中率和上下文占用。数据来自本机 Codex 会话记录，不改变请求内容。": "Show session turns, model call counts, generation speed, cache hit rate, and context usage below the composer. Read from local Codex session logs; requests are not modified.",
+  "在输入框下方显示会话轮数、模型与工具调用次数、生成速度、缓存命中率和上下文占用。数据来自本机 Codex 会话记录，不改变请求内容。": "Show session turns, separate model/tool call counts, generation speed, cache hit rate, and context usage below the composer. Read from local Codex session logs; requests are not modified.",
   "点击建议后自动发送；关闭时只填入输入框。": "Automatically sends after clicking a suggestion. When off, it only fills the composer.",
   "刚刚启动": "Just launched",
   "删除": "Delete",

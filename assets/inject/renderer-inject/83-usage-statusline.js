@@ -49,8 +49,8 @@
   function codexPlusUsageText() {
     const language = (document.documentElement?.lang || navigator.language || "").toLowerCase();
     return language.startsWith("zh")
-      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, activity: (turns, current, total) => `会话 ${turns} 轮 · 本轮 ${current} 次 · 累计 ${total} 次`, scanning: "会话统计中…", countsHint: "轮数按本地日志 turn_id 去重；次数为有用量记录的已完成模型调用，不含工具执行、失败或网络重试。≥ 表示历史用量不完整，仅能给出下界；— 表示缺少可靠轮次或统计数据。", aria: "用量状态栏" }
-      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, activity: (turns, current, total) => `${turns} turns · ${current} calls this turn · ${total} total calls`, scanning: "Counting session…", countsHint: "Turns are distinct local turn IDs. Calls are completed model calls with usage, excluding tools, failures and network retries. ≥ means a lower bound from incomplete usage; — means reliable data is unavailable.", aria: "Usage status line" };
+      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, activity: (turns, current, total) => `会话 ${turns} 轮 · 模型 本轮 ${current} / 累计 ${total}`, tools: (current, total) => `工具 本轮 ${current} / 累计 ${total}`, scanning: "会话统计中…", countsHint: "轮数按本地日志 turn_id 去重；模型次数为有用量记录的已完成模型调用，不含工具执行、失败或网络重试。≥ 表示历史用量不完整，仅能给出下界；— 表示缺少可靠轮次或统计数据。", toolsHint: "工具次数为模型发起的外层工具请求，按 call_id 去重（内置服务端工具使用条目 id）；失败或取消的工具请求也计入。输出、界面完成事件和批量内部子步骤不重复计数。≥ 表示日志记录不完整，仅能给出下界。", aria: "用量状态栏" }
+      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, activity: (turns, current, total) => `${turns} turns · Model calls ${current} / ${total}`, tools: (current, total) => `Tool calls ${current} / ${total}`, scanning: "Counting session…", countsHint: "Turns are distinct local turn IDs. Calls are completed model calls with usage, excluding tools, failures and network retries. ≥ means a lower bound from incomplete usage; — means reliable data is unavailable.", toolsHint: "Current turn / session total. Model-visible outer tool requests, deduplicated by call_id (item ID for built-in server tools), including failed/cancelled requests. Outputs, UI completion events and internal batch steps are not counted again. ≥ indicates a lower bound from incomplete records.", aria: "Usage status line" };
   }
 
   function codexPlusUsageInstallStyle() {
@@ -128,6 +128,9 @@
     const parts = {
       activity: codexPlusUsageItem(node, "activity", "activity", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M13 5a5 5 0 1 0 0 6M13 2v4H9" } },
+      ]).svg),
+      tools: codexPlusUsageItem(node, "tools", "tools", codexPlusUsageIcon([
+        { tag: "path", attrs: { d: "m5 3-3 5 3 5M11 3l3 5-3 5M9 2 7 14" } },
       ]).svg),
       speed: codexPlusUsageItem(node, "speed", "speed", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M2 12.5a6 6 0 0 1 12 0" } },
@@ -322,8 +325,10 @@
     const count = (value, lowerBound = false) => Number.isSafeInteger(value) && value >= 0 ? `${lowerBound ? "≥" : ""}${value}` : "—";
     const countsText = activity && !activity.scan_complete ? text.scanning
       : text.activity(count(activity?.turns), count(activity?.turn_calls, activity?.calls_complete === false), count(activity?.total_calls, activity?.calls_complete === false));
+    const toolsActivity = activity?.scan_complete === true ? activity : null;
+    const toolsText = text.tools(count(toolsActivity?.turn_tool_calls, toolsActivity?.tool_calls_complete === false), count(toolsActivity?.total_tool_calls, toolsActivity?.tool_calls_complete === false));
     // 指纹一样就不写 DOM：每秒一次无意义赋值会让 Codex 的 MutationObserver 空转。
-    const fingerprint = [speed, cache, context, stale, contextWindow, countsText].join("|");
+    const fingerprint = [speed, cache, context, stale, contextWindow, countsText, toolsText].join("|");
     if (fingerprint === codexPlusUsageState.lastFingerprint) return;
     codexPlusUsageState.lastFingerprint = fingerprint;
 
@@ -332,6 +337,8 @@
     parts.context.value.textContent = text.context(context);
     parts.activity.value.textContent = countsText;
     parts.activity.item.title = text.countsHint;
+    parts.tools.value.textContent = toolsText;
+    parts.tools.item.title = text.toolsHint;
     if (parts.ring) {
       const filled = snapshot?.context == null ? 0 : (snapshot.context / 100) * codexPlusUsageRingCircumference;
       parts.ring.setAttribute("stroke-dasharray", `${filled.toFixed(2)} ${codexPlusUsageRingCircumference}`);
@@ -340,11 +347,12 @@
     node.setAttribute("title", [
       `生成速度 ${format(speed)} tok/s`,
       countsText,
+      toolsText,
       `缓存命中 ${format(cache)}`,
       `上下文占用 ${format(context)}`,
       contextWindow > 0 ? `窗口 ${contextWindow}` : "",
     ].filter(Boolean).join(" · "));
-    node.setAttribute("aria-label", `${text.aria}：${countsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
+    node.setAttribute("aria-label", `${text.aria}：${countsText}，${toolsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
   }
 
   function codexPlusUsageSchedule(delay) {
@@ -500,7 +508,7 @@
   codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 3,
+    version: 4,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;
