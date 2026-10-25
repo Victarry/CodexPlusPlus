@@ -1496,3 +1496,36 @@ fn thread_usage_live_reports_missing_sessions_without_history_payload() {
     assert_eq!(value["events"], json!([]));
     assert!(value.get("history").is_none());
 }
+
+#[test]
+fn thread_usage_live_counts_all_turns_and_calls_beyond_the_tail_event_limit() {
+    let mut records = Vec::new();
+    for i in 1..=35 {
+        records.push(json!({"type":"event_msg","payload":{"type":"task_started","turn_id":format!("turn-{i}")}}));
+        records.push(live_usage_token_event(i * 100, 1000, 0));
+    }
+    // 一个新轮次还未产生 token 事件时，本轮次数应立即为 0，而非沿用上一轮。
+    records.push(json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-36"}}));
+    let result = live_usage_from_records(&records);
+    assert_eq!(result["events"].as_array().unwrap().len(), 24);
+    assert_eq!(result["activity"]["turns"], 36);
+    assert_eq!(result["activity"]["turn_calls"], 0);
+    assert_eq!(result["activity"]["total_calls"], 35);
+    assert_eq!(result["activity"]["scan_complete"], true);
+}
+
+#[test]
+fn thread_usage_live_refuses_a_remote_host_even_if_the_id_exists_locally() {
+    let tmp = tempdir().unwrap();
+    let db_path = tmp.path().join("state_5.sqlite");
+    let rollout_path = tmp.path().join("rollout.jsonl");
+    fs::write(&rollout_path, "").unwrap();
+    create_codex_thread_db(&db_path, &rollout_path);
+    let adapter = SQLiteStorageAdapter::new(&db_path, BackupStore::new(tmp.path().join("backups")));
+    let mut remote = session("local:t1", "Remote copy");
+    remote.host_id = Some("remote-ssh-discovered:dev-kth".to_owned());
+    let value = adapter.codex_thread_usage_live(&remote);
+    assert_eq!(value["status"], "unsupported");
+    assert_eq!(value["events"], json!([]));
+    assert!(value.get("activity").is_none());
+}

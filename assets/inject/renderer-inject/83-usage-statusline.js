@@ -1,5 +1,5 @@
   /**
-   * 输入框下方用量状态栏：生成速度 / 缓存命中率 / 上下文占用。
+   * 输入框下方用量状态栏：任务轮次 / 模型调用次数 / 速度 / 缓存命中 / 上下文占用。
    *
    * 数据全部来自 Codex 自己写的 rollout 记录（`event_msg.token_count`），中文档口径
    * 与 Codex 一致：缓存命中 = cached_input_tokens / input_tokens，上下文占用 =
@@ -49,8 +49,8 @@
   function codexPlusUsageText() {
     const language = (document.documentElement?.lang || navigator.language || "").toLowerCase();
     return language.startsWith("zh")
-      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, aria: "用量状态栏" }
-      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, aria: "Usage status line" };
+      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, activity: (turns, current, total) => `会话 ${turns} 轮 · 本轮 ${current} 次 · 累计 ${total} 次`, scanning: "会话统计中…", countsHint: "轮数按本地日志 turn_id 去重；次数为有用量记录的已完成模型调用，不含工具执行、失败或网络重试。≥ 表示历史用量不完整，仅能给出下界；— 表示缺少可靠轮次或统计数据。", aria: "用量状态栏" }
+      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, activity: (turns, current, total) => `${turns} turns · ${current} calls this turn · ${total} total calls`, scanning: "Counting session…", countsHint: "Turns are distinct local turn IDs. Calls are completed model calls with usage, excluding tools, failures and network retries. ≥ means a lower bound from incomplete usage; — means reliable data is unavailable.", aria: "Usage status line" };
   }
 
   function codexPlusUsageInstallStyle() {
@@ -64,10 +64,11 @@
          这里以主文字色取 82%，既够亮又略低于输入框文字。 */
       /* 三项作为一组居中，和 DSH 那条一致；两端对齐会把「上下文占用」甩到最右边，
          和速度、缓存拉得太开，读起来是两段信息。 */
-      #${codexPlusUsageStatusLineId}{display:flex;align-items:center;justify-content:center;gap:24px;box-sizing:border-box;width:100%;margin:6px 0 0;padding:0 10px;font:inherit;font-size:12px;line-height:17px;color:var(--color-token-text-secondary,rgba(205,205,215,.95));color:color-mix(in srgb,var(--color-token-text-primary,#dfdfdf) 82%,transparent);user-select:none;cursor:default}
+      #${codexPlusUsageStatusLineId}{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;column-gap:16px;row-gap:4px;box-sizing:border-box;width:100%;margin:6px 0 0;padding:0 10px;font:inherit;font-size:12px;line-height:17px;color:var(--color-token-text-secondary,rgba(205,205,215,.95));color:color-mix(in srgb,var(--color-token-text-primary,#dfdfdf) 82%,transparent);user-select:none;cursor:default}
       #${codexPlusUsageStatusLineId}[data-hidden="true"]{display:none}
       #${codexPlusUsageStatusLineId} .codex-plus-usage-item{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-variant-numeric:tabular-nums;transition:opacity .2s}
       #${codexPlusUsageStatusLineId} .codex-plus-usage-value{font-weight:500}
+      #${codexPlusUsageStatusLineId} [data-usage="activity"]{white-space:normal;text-align:center}
       #${codexPlusUsageStatusLineId} .codex-plus-usage-item svg{flex:0 0 auto;opacity:.8}
       /* 本轮结束超过阈值只淡化速度：缓存命中与上下文占用仍然是当前值，不该跟着变灰。 */
       #${codexPlusUsageStatusLineId}[data-stale="true"] .codex-plus-usage-item[data-usage="speed"]{opacity:.55}
@@ -125,6 +126,9 @@
     node.textContent = "";
     const ring = codexPlusUsageRingIcon();
     const parts = {
+      activity: codexPlusUsageItem(node, "activity", "activity", codexPlusUsageIcon([
+        { tag: "path", attrs: { d: "M13 5a5 5 0 1 0 0 6M13 2v4H9" } },
+      ]).svg),
       speed: codexPlusUsageItem(node, "speed", "speed", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M2 12.5a6 6 0 0 1 12 0" } },
         { tag: "path", attrs: { d: "M8 12.5 10.8 8.6" } },
@@ -177,6 +181,13 @@
       : null;
     const id = String(fromComposer || fromSidebar || "").replace(/^local:/, "").trim();
     if (!id || id === "__proto__" || id === "prototype" || id === "constructor") return "";
+    // 同一个 UUID 可能同时出现在本机与 SSH 副本中；已确认远端归属时不能读本机副本。
+    const selected = document.querySelector('[data-app-action-sidebar-thread-selected="true"][data-app-action-sidebar-thread-id]');
+    if (selected && typeof sessionRefFromRow === "function") {
+      const ref = sessionRefFromRow(selected);
+      if (String(ref?.session_id || "").replace(/^local:/, "") === id
+        && ref.host_id && ref.host_id !== "local") return "";
+    }
     return /^[A-Za-z0-9_.-]{8,128}$/.test(id) ? id : "";
   }
 
@@ -276,9 +287,14 @@
     return recent.reduce((total, rate) => total + rate, 0) / recent.length;
   }
 
-  function codexPlusUsageSnapshot(events) {
-    if (!Array.isArray(events) || !events.length) return null;
-    const latest = events[events.length - 1];
+  function codexPlusUsageSnapshot(events, activity = null) {
+    const validCount = (value) => Number.isSafeInteger(value) && value >= 0;
+    const counts = activity && typeof activity.scan_complete === "boolean"
+      && typeof activity.calls_complete === "boolean" && validCount(activity.total_calls)
+      && (activity.turns === null || validCount(activity.turns))
+      && (activity.turn_calls === null || validCount(activity.turn_calls)) ? activity : null;
+    if ((!Array.isArray(events) || !events.length) && !counts) return null;
+    const latest = events?.[events.length - 1] || {};
     const observedAt = Date.parse(latest.t);
     return {
       speed: codexPlusUsageRate(events),
@@ -286,6 +302,7 @@
       context: codexPlusUsagePercent(Number(latest.total_tokens), Number(latest.context_window)),
       stale: Number.isFinite(observedAt) ? Date.now() - observedAt > codexPlusUsageStaleMs : false,
       modelContextWindow: Number(latest.context_window) || 0,
+      activity: counts,
     };
   }
 
@@ -301,14 +318,20 @@
     const context = snapshot?.context == null ? "--" : `${Math.round(snapshot.context)}%`;
     const stale = snapshot?.stale === true;
     const contextWindow = snapshot?.modelContextWindow || 0;
+    const activity = snapshot?.activity;
+    const count = (value, lowerBound = false) => Number.isSafeInteger(value) && value >= 0 ? `${lowerBound ? "≥" : ""}${value}` : "—";
+    const countsText = activity && !activity.scan_complete ? text.scanning
+      : text.activity(count(activity?.turns), count(activity?.turn_calls, activity?.calls_complete === false), count(activity?.total_calls, activity?.calls_complete === false));
     // 指纹一样就不写 DOM：每秒一次无意义赋值会让 Codex 的 MutationObserver 空转。
-    const fingerprint = [speed, cache, context, stale, contextWindow].join("|");
+    const fingerprint = [speed, cache, context, stale, contextWindow, countsText].join("|");
     if (fingerprint === codexPlusUsageState.lastFingerprint) return;
     codexPlusUsageState.lastFingerprint = fingerprint;
 
     parts.speed.value.textContent = text.speed(speed);
     parts.cache.value.textContent = text.cache(cache);
     parts.context.value.textContent = text.context(context);
+    parts.activity.value.textContent = countsText;
+    parts.activity.item.title = text.countsHint;
     if (parts.ring) {
       const filled = snapshot?.context == null ? 0 : (snapshot.context / 100) * codexPlusUsageRingCircumference;
       parts.ring.setAttribute("stroke-dasharray", `${filled.toFixed(2)} ${codexPlusUsageRingCircumference}`);
@@ -316,11 +339,12 @@
     node.dataset.stale = String(stale);
     node.setAttribute("title", [
       `生成速度 ${format(speed)} tok/s`,
+      countsText,
       `缓存命中 ${format(cache)}`,
       `上下文占用 ${format(context)}`,
       contextWindow > 0 ? `窗口 ${contextWindow}` : "",
     ].filter(Boolean).join(" · "));
-    node.setAttribute("aria-label", `${text.aria}：${text.speed(speed)}，${text.cache(cache)}，${context}`);
+    node.setAttribute("aria-label", `${text.aria}：${countsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
   }
 
   function codexPlusUsageSchedule(delay) {
@@ -355,14 +379,15 @@
       codexPlusUsageState.lastFingerprint = "";
     }
     codexPlusUsageShow(node);
-    codexPlusUsageRender(codexPlusUsageSnapshot(codexPlusUsageState.cache.get(threadId)));
+    const cached = codexPlusUsageState.cache.get(threadId);
+    codexPlusUsageRender(codexPlusUsageSnapshot(cached?.events, cached?.activity));
     return { card, threadId, changed };
   }
 
-  function codexPlusUsageRemember(threadId, events) {
-    if (!events?.length) return;
+  function codexPlusUsageRemember(threadId, events, activity = null) {
+    if (!events?.length && !activity) return;
     codexPlusUsageState.cache.delete(threadId);
-    codexPlusUsageState.cache.set(threadId, events.slice(-24));
+    codexPlusUsageState.cache.set(threadId, { events: events?.slice(-24) || [], activity });
     if (codexPlusUsageState.cache.size > 32) {
       codexPlusUsageState.cache.delete(codexPlusUsageState.cache.keys().next().value);
     }
@@ -391,6 +416,7 @@
       attributeFilter: [
         "data-above-composer-conversation-id", "data-composer-placement",
         "data-app-action-sidebar-thread-selected", "data-app-action-sidebar-thread-id",
+        "data-app-action-sidebar-thread-host-id",
       ],
     });
   }
@@ -401,8 +427,9 @@
     try {
       const result = await postJson("/thread-usage-live", { session_id: threadId });
       codexPlusUsageState.failures = 0;
-      if (result?.status !== "ok" || !Array.isArray(result.events)) return null;
-      return result.events;
+      if (result?.status !== "ok" || !Array.isArray(result.events)
+        || String(result.session_id || "").replace(/^local:/, "") !== threadId) return null;
+      return { events: result.events, activity: result.activity || null };
     } finally {
       codexPlusUsageState.inFlight = false;
     }
@@ -430,9 +457,9 @@
       codexPlusUsageSchedule(codexPlusUsageActiveIntervalMs);
       return;
     }
-    let events = null;
+    let usage = null;
     try {
-      events = await codexPlusUsageRefresh(threadId);
+      usage = await codexPlusUsageRefresh(threadId);
     } catch (error) {
       if (codexPlusUsageState.threadId === threadId) codexPlusUsageState.failures += 1;
       if (codexPlusUsageState.failures === codexPlusUsageFailureLimit) {
@@ -443,17 +470,18 @@
       }
     }
     if (codexPlusUsageState.disposed) return;
-    codexPlusUsageRemember(threadId, events);
+    codexPlusUsageRemember(threadId, usage?.events, usage?.activity);
     const current = codexPlusUsageSyncPlacement();
     if (!current || current.threadId !== threadId) {
       codexPlusUsageSchedule(current ? 0 : codexPlusUsageIdleIntervalMs);
       return;
     }
-    const snapshot = codexPlusUsageSnapshot(codexPlusUsageState.cache.get(threadId));
+    const cached = codexPlusUsageState.cache.get(threadId);
+    const snapshot = codexPlusUsageSnapshot(cached?.events, cached?.activity);
     if (snapshot) {
       codexPlusUsageRender(snapshot);
       // 刚有事件说明本轮在跑，加密轮询；本轮已经结束就拉长间隔。
-      codexPlusUsageSchedule(snapshot.stale ? codexPlusUsageIdleIntervalMs : codexPlusUsageActiveIntervalMs);
+      codexPlusUsageSchedule(snapshot.stale && snapshot.activity?.scan_complete !== false ? codexPlusUsageIdleIntervalMs : codexPlusUsageActiveIntervalMs);
       return;
     }
     if (codexPlusUsageState.failures >= codexPlusUsageFailureLimit) {
@@ -472,7 +500,7 @@
   codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 2,
+    version: 3,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;

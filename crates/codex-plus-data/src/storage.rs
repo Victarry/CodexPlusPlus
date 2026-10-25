@@ -489,6 +489,12 @@ impl SQLiteStorageAdapter {
     /// `Unavailable` 里已经是可直接返回前端的失败对象：语义是「本地没有这个会话的
     /// 历史」，不是后端故障，所以不走 anyhow；真正的 IO / SQLite 故障走 Err。
     fn codex_thread_rollout(&self, session: &SessionRef) -> anyhow::Result<CodexThreadRollout> {
+        if session.host_id.as_deref().is_some_and(|host| host != "local") {
+            return Ok(CodexThreadRollout::Unavailable(json!({
+                "status": "unsupported", "session_id": session.session_id,
+                "message": "Remote usage is unavailable in local rollout storage",
+            })));
+        }
         let thread_id = normalize_codex_thread_id(&session.session_id);
         let mut errors = Vec::new();
         let mut missing = Vec::new();
@@ -611,10 +617,8 @@ impl SQLiteStorageAdapter {
 
     /// Codex 输入框下方状态栏用的轻量用量快照。
     ///
-    /// 与 `codex_thread_usage_history` 的关键差别是**只读 rollout 尾部**：状态栏按
-    /// 秒级轮询，而真实会话的 rollout 可以到几百 MB，整读整解析会把 spawn_blocking
-    /// 线程拖住（同一个 adapter 还要服务删除、导出）。尾部窗口拿不到足够事件时按倍数
-    /// 放大，封顶后直接返回已有事件，不做全量兜底。
+    /// 用量曲线只读尾部；会话轮次 / 调用数另用有界增量扫描缓存，不能把尾部事件数量
+    /// 当成会话累计。每次最多扫描 8 MiB，大会话预热期间明确返回 scan_complete=false。
     pub fn codex_thread_usage_live(&self, session: &SessionRef) -> serde_json::Value {
         let with_events = |mut value: Value| {
             if let Some(object) = value.as_object_mut() {
@@ -639,6 +643,7 @@ impl SQLiteStorageAdapter {
                     "session_id": thread_id,
                     "rollout_path": rollout_path,
                     "events": events,
+                    "activity": crate::usage_activity::read_activity(&rollout).ok(),
                 }),
                 Err(err) => with_events(json!({
                     "status": "failed",

@@ -14,7 +14,7 @@
 - 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-adfree-v1.11.2-20261025`。应用标识与配置路径保持原值，以延续现有配置。
+应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-activity-v1.11.2-20261025`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -34,3 +34,19 @@ cargo build --locked --release -p codex-plus-manager
 本地实测沿用 `AGENTS.md` 中固定的 `dist/local-build/Codex++.app`，在其隔离状态目录中启动。正式替换本机安装前备份完整 `.app`，保留原 `Info.plist`、资源、配置、认证和双 profile 目录关系，只替换 `Contents/MacOS/CodexPlusPlus` 并重新签名。用户无需卸载或删除原配置。
 
 本机重签使用 ad-hoc 签名，不具备上游发行包的 Developer ID 公证身份。不要以本地测试结果替代未来发布时的签名与安装验证。
+
+## 会话轮次与模型调用计数
+
+用量状态栏增加 `会话 6 轮 · 本轮 12 次 · 累计 183 次`：轮数按当前本地 rollout 中的 `turn_id` 去重，次数为有真实输入 / 输出用量的已完成模型调用。工具执行、重复 token_count、限额刷新、上下文估算与 context-full 哨兵不会新增调用。失败或未写出用量的网络重试不在此计数中，不能把它当作网关账单的 HTTP 请求总数。
+
+首次按最多 8 MiB / 次扫描历史，预热时显示“会话统计中…”，之后只消费新增字节；按文件路径隔离、有界缓存，并在文件截断、替换或检测到改写后重建。半行保留到续写完整，超大工具输出不保存在缓存。缺少可靠轮次显示 `—`，无法确认完整性的用量显示 `≥` 下界。自动续跑也可能产生新的 Codex 任务轮次，轮数不是用户消息条数。
+
+数据接入现有内置 `/thread-usage-live`，没有扩大第三方扩展路由白名单。当前只读取该实例自己的本机会话记录；SSH 远端没有对应本地 rollout 时显示不可用，不跨 profile 查询或借用其他会话的计数。
+
+相关验证：
+
+```sh
+cargo test --locked --release -p codex-plus-data --lib usage_activity
+cargo test --locked --release -p codex-plus-data --test storage_adapter
+node --test apps/codex-plus-manager/src/usage-statusline.test.ts
+```

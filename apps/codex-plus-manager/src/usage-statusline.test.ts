@@ -47,12 +47,13 @@ type Sandbox = {
   codexPlusUsagePercent: (numerator: number, denominator: number) => number | null;
   codexPlusUsageRate: (events: Array<Record<string, unknown>>) => number | null;
   codexPlusUsageTurnCache: (events: Array<Record<string, unknown>>) => number | null;
-  codexPlusUsageSnapshot: (events: Array<Record<string, unknown>>) => {
+  codexPlusUsageSnapshot: (events: Array<Record<string, unknown>>, activity?: any) => {
     speed: number | null;
     cache: number | null;
     context: number | null;
     stale: boolean;
     modelContextWindow: number;
+    activity: any;
   } | null;
   codexPlusUsageThreadId: (card: unknown) => string;
 };
@@ -236,6 +237,7 @@ function lifecycle() {
   const renders: any[] = [];
   let resolveRequest: (value: unknown) => void = () => {};
   let rejectRequest: (error: Error) => void = () => {};
+  let requestedId = "";
   const source = [
     ...["codexPlusUsageState", "codexPlusUsageStaleMs", "codexPlusUsageIdleIntervalMs",
       "codexPlusUsageActiveIntervalMs", "codexPlusUsageWarmupIntervalMs", "codexPlusUsageFailureLimit",
@@ -250,13 +252,17 @@ function lifecycle() {
     { hidden: false }, () => true, () => current.card, () => current.id,
     (card: unknown) => { node.previousElementSibling = card; return node; },
     (value: unknown) => renders.push(value), () => {},
-    () => new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; }), () => {},
+    (_path: string, payload: { session_id: string }) => {
+      requestedId = payload.session_id;
+      return new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; });
+    }, () => {},
   );
   runtime.state.node = node;
   return {
     ...runtime, node, renders,
     switchTo(id: string) { current = { id, card: {} }; },
-    respond(events: unknown[]) { resolveRequest({ status: "ok", events }); },
+    respond(events: unknown[], activity: unknown = null) { resolveRequest({ status: "ok", session_id: requestedId, events, activity }); },
+    respondFor(sessionId: string, events: unknown[], activity: unknown) { resolveRequest({ status: "ok", session_id: sessionId, events, activity }); },
     fail() { rejectRequest(new Error("bridge unavailable")); },
   };
 }
@@ -313,4 +319,89 @@ test("空数据及连续失败仍保留已有会话栏位，缓存有界", async
   for (let i = 0; i < 40; i++) ui.remember(`thread-${i}`, [event(0, i)]);
   assert.equal(ui.state.cache.size, 32);
   assert.equal(ui.state.cache.has("thread-0"), false);
+});
+
+const activity = (turns = 6, turnCalls = 12, totalCalls = 183) => ({
+  scan_complete: true, calls_complete: true, turns, turn_calls: turnCalls, total_calls: totalCalls,
+});
+
+test("累计调用使用宿主扫描结果，不能用尾部事件条数代替；首个调用前仍显示新轮次", () => {
+  const { codexPlusUsageSnapshot } = sandbox(Date.now());
+  const snapshot = codexPlusUsageSnapshot([event(0, 1), event(1, 2)], activity());
+  assert.equal(snapshot?.activity.total_calls, 183);
+  assert.equal(codexPlusUsageSnapshot([event(0, 1)])?.activity, null, "旧 helper 不提供计数时不能瞎猜");
+  const started = codexPlusUsageSnapshot([], activity(7, 0, 183));
+  assert.equal(started?.activity.turn_calls, 0);
+  assert.equal(started?.activity.turns, 7);
+  assert.equal(started?.speed, null);
+  assert.equal(started?.context, null);
+  assert.equal(codexPlusUsageSnapshot([], { ...activity(), total_calls: -1 }), null);
+});
+
+test("会话切换恢复各自的累计值，返回其他会话的数据不能覆盖当前计数", async () => {
+  const ui = lifecycle();
+  const a = ui.tick();
+  ui.respond([event(0, 1)], activity(20, 30, 4000));
+  await a;
+  ui.switchTo("thread-b-123"); ui.sync();
+  assert.equal(ui.renders.at(-1), null);
+  const b = ui.tick();
+  ui.respond([], activity(2, 0, 3));
+  await b;
+  assert.equal(ui.renders.at(-1).activity.total_calls, 3);
+  ui.switchTo("thread-a-123"); ui.sync();
+  assert.equal(ui.renders.at(-1).activity.total_calls, 4000);
+  ui.switchTo("thread-c-123"); ui.sync();
+  const c = ui.tick();
+  ui.respondFor("thread-b-123", [], activity(999, 999, 999));
+  await c;
+  assert.equal(ui.renders.at(-1), null);
+  assert.equal(ui.state.cache.has("thread-c-123"), false);
+});
+
+function renderHarness(language = "zh-CN") {
+  const attrs = new Map<string, string>();
+  const parts = Object.fromEntries(["speed", "cache", "context", "activity"].map(key => [key, {
+    value: { textContent: "" }, item: { title: "" },
+  }]));
+  const state = { node: { isConnected: true, dataset: {}, setAttribute: (key: string, value: string) => attrs.set(key, value) }, parts, lastFingerprint: "" };
+  const render = new Function("document", "navigator", "codexPlusUsageState", [
+    declaration("codexPlusUsageRingCircumference"), declaration("codexPlusUsageText"),
+    declaration("codexPlusUsageRender"), "return codexPlusUsageRender;",
+  ].join("\n"))({ documentElement: { lang: language } }, { language }, state);
+  return { render, parts, attrs };
+}
+
+test("状态栏显示三项计数，计数变化会刷新 DOM，扫描中和不完整记录有明确标识", () => {
+  const ui = renderHarness();
+  ui.render({ activity: activity() });
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 本轮 12 次 · 累计 183 次");
+  assert.match(ui.parts.activity.item.title, /不含工具执行、失败或网络重试/);
+  ui.render({ activity: activity(6, 13, 184) });
+  assert.equal(ui.parts.activity.value.textContent, "会话 6 轮 · 本轮 13 次 · 累计 184 次");
+  ui.render({ activity: { ...activity(), scan_complete: false } });
+  assert.equal(ui.parts.activity.value.textContent, "会话统计中…");
+  ui.render({ activity: { ...activity(), turns: null, turn_calls: null, calls_complete: false } });
+  assert.equal(ui.parts.activity.value.textContent, "会话 — 轮 · 本轮 — 次 · 累计 ≥183 次");
+  assert.match(ui.attrs.get("aria-label") || "", /累计 ≥183 次/);
+  ui.render(null);
+  assert.doesNotMatch(ui.parts.activity.value.textContent, /183/, "空会话不能保留上一个会话的计数");
+  assert.match(shardSource, /flex-wrap:wrap/);
+});
+
+test("英文状态栏明确标注模型调用计数", () => {
+  const ui = renderHarness("en-US");
+  ui.render({ activity: activity() });
+  assert.equal(ui.parts.activity.value.textContent, "6 turns · 12 calls this turn · 183 total calls");
+  assert.match(ui.parts.activity.item.title, /completed model calls/);
+});
+
+test("已确认远端归属的同名会话不读取本机副本", () => {
+  const id = "01a1352f-f8a9-71f2-9ae4-f2de48a74d8d";
+  const card = { closest: () => ({ getAttribute: () => "thread", querySelector: () => ({ getAttribute: () => id }) }) };
+  const document = { querySelector: () => ({ getAttribute: () => id }) };
+  const threadId = new Function("document", "sessionRefFromRow", `${declaration("codexPlusUsageThreadId")}\nreturn codexPlusUsageThreadId;`)(
+    document, () => ({ session_id: id, host_id: "remote-ssh-discovered:dev-kth" }),
+  );
+  assert.equal(threadId(card), "");
 });
