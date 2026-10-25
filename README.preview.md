@@ -1,3 +1,5 @@
+> 此 fork 基于上游 v1.11.2，移除广告、赞助推荐和推广链接，保留 AGPL 许可证与原作者署名。构建与差异见 [FORK.md](FORK.md)。
+
 <!-- 独立设计预览稿。确认采用前不替换 README.md；图片路径按仓库根目录组织。 -->
 
 <p align="center">
@@ -10,18 +12,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigPizzaV3/CodexPlusPlus/releases"><img src="https://img.shields.io/github/v/release/BigPizzaV3/CodexPlusPlus?style=flat-square&amp;color=7387ff&amp;label=release" alt="最新版本"></a>
-  <a href="https://github.com/BigPizzaV3/CodexPlusPlus/stargazers"><img src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus?style=flat-square&amp;color=e8b86d" alt="GitHub Stars"></a>
+  <a href="https://github.com/Victarry/CodexPlusPlus/releases"><img src="https://img.shields.io/github/v/release/Victarry/CodexPlusPlus?style=flat-square&amp;color=7387ff&amp;label=release" alt="最新版本"></a>
+  <a href="https://github.com/Victarry/CodexPlusPlus/stargazers"><img src="https://img.shields.io/github/stars/Victarry/CodexPlusPlus?style=flat-square&amp;color=e8b86d" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-838da8?style=flat-square" alt="许可证 AGPL-3.0-only"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-838da8?style=flat-square" alt="支持 Windows 和 macOS">
   <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-838da8?style=flat-square" alt="使用 Rust 与 Tauri 构建">
 </p>
 
 <p align="center">
-  <a href="https://github.com/BigPizzaV3/CodexPlusPlus/releases"><strong>下载最新版 ↗</strong></a> &nbsp; · &nbsp;
+  <a href="https://github.com/Victarry/CodexPlusPlus/releases"><strong>下载最新版 ↗</strong></a> &nbsp; · &nbsp;
   <a href="#快速上手">快速上手</a> &nbsp; · &nbsp;
   <a href="#功能一览">功能一览</a> &nbsp; · &nbsp;
-  <a href="https://github.com/BigPizzaV3/CodexPlusPlus/issues">反馈问题</a> &nbsp; · &nbsp;
+  <a href="https://github.com/Victarry/CodexPlusPlus/issues">反馈问题</a> &nbsp; · &nbsp;
   <a href="README_EN.md">English</a>
 </p>
 
@@ -34,85 +36,13 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 ## 交流与支持
 
-遇到问题请通过 [GitHub Issues](https://github.com/BigPizzaV3/CodexPlusPlus/issues) 提交，附上系统、Codex++ 版本、复现步骤与已脱敏的日志。欢迎分享拓展、主题和使用经验。
+遇到问题请通过 [GitHub Issues](https://github.com/Victarry/CodexPlusPlus/issues) 提交，附上系统、Codex++ 版本、复现步骤与已脱敏的日志。欢迎分享拓展、主题和使用经验。
 
 <p align="center">
   <a href="https://qm.qq.com/q/5h3pxpxg7S">QQ 交流 4 群 · 1127858981</a> &nbsp; · &nbsp;
   <a href="https://t.me/CodexPlusPlus">Telegram 频道</a> &nbsp; · &nbsp;
   <a href="https://linux.do">LINUX DO</a>
 </p>
-
-## 感谢赞助商
-
-感谢以下赞助商对项目的支持。服务范围、价格与活动以各平台官网说明为准。
-
-<p align="center">
-  <a href="https://jojocode.com/">
-    <img src="docs/images/readme-preview/jojo-banner-v3.png" alt="JOJO Code 赞助横幅" width="800">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://jojocode.com/"><strong>JOJO Code</strong></a><br>
-  JOJO Code 提供稳定、价格合理的 API 中转服务，支持 GPT-6.1、GPT-6、Fable 5.1、Claude Opus 5.5 等模型与图像能力，适合日常开发、团队协作和长期项目工作流。
-</p>
-
-<table>
-  <tr>
-    <th width="180">🏆 赞助商 🏆</th>
-    <th>介绍</th>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://jojocode.com/">
-        <img src="docs/images/readme-preview/jojo-banner-v3.png" alt="JOJO Code" height="80">
-      </a>
-    </td>
-    <td><a href="https://jojocode.com/"><strong>JOJO Code</strong></a><br>JOJO Code 提供稳定、价格合理的 API 中转服务，支持 GPT-6.1、GPT-6、Fable 5.1、Claude Opus 5.5 等模型与图像能力，适合日常开发、团队协作和长期项目工作流。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://apikey.fun/register?aff=CODEX">
-        <img src="docs/images/sponsor-apikey-fun.png" alt="APIKEY.FUN" height="80">
-      </a>
-    </td>
-    <td><a href="https://apikey.fun/register?aff=CODEX"><strong>APIKEY.FUN</strong></a><br>感谢 APIKEY.FUN 赞助了本项目！APIKEY.FUN 是一家致力于提供开放、稳定、高性价比的全球主流大模型的 AI 中转站。平台支持 Claude、OpenAI、Gemini 等热门模型的 API 中转服务，价格低至官方原价的 7%。通过专属链接<a href="https://apikey.fun/register?aff=CODEX">注册 APIKEY</a>，可享受最高充值永久 95 折优惠。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">
-        <img src="docs/images/sponsor-grooroute.png" alt="GrooRoute" width="170">
-      </a>
-    </td>
-    <td><a href="https://grooroute.com/register?aff=2B3KJR5SRNTX"><strong>GrooRoute</strong></a><br>GrooRoute 提供 Claude 与 GPT 全系官方原模型，一行配置即可接入 Claude Code、Codex 或直接调用 API，官方承诺不掺假、永久保真。限时注册活动：充值 50 美元赠送 50 美元，通过<a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">专属链接注册</a>并完成充值后，联系客服即可获取优惠。官网：<a href="https://grooroute.com/">grooroute.com</a>。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://runapi.host/register?aff=AWJq">
-        <img src="docs/images/sponsor-runapi.png" alt="RunAPI" width="150">
-      </a>
-    </td>
-    <td><a href="https://runapi.host/register?aff=AWJq"><strong>RunAPI</strong></a><br>RunAPI 是高效稳定的 API 聚合平台，一个 API Key 即可访问 OpenAI、Claude、Gemini、DeepSeek、Grok 等 150+ 主流模型，低至 1 折，兼容 Claude Code、OpenClaw 等工具。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://api.fenno.ai/s/ZZM7">
-        <img src="docs/images/sponsor-fenno-ai.png" alt="FennoAI" width="170">
-      </a>
-    </td>
-    <td><a href="https://api.fenno.ai/s/ZZM7"><strong>FennoAI</strong></a><br>FennoAI 是一家稳定、高效的 API 中转服务商，目前主要提供 Codex 中转服务，兼容 OpenAI 及 Anthropic 协议，可灵活接入 Codex、Claude Code、OpenCode 等主流编程工具，稳定支撑千亿 Token/日的企业级调用需求，支持国内及海外主体公对公结算、开票。通过<a href="https://api.fenno.ai/s/ZZM7">专属链接</a>购买订阅，仅需 1.99 美元即可获得价值 50 美元的 Coding Plan 额度；邀请好友购买最高可获得 20% 返佣。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://s.qiniu.com/7zUJri">
-        <img src="docs/images/sponsor-qiniu-ai.png" alt="七牛云" width="170">
-      </a>
-    </td>
-    <td><a href="https://s.qiniu.com/7zUJri"><strong>七牛云</strong></a><br>感谢七牛云 AI 赞助本项目！七牛云 AI 是七牛云（02567.HK）旗下企业级大模型 MaaS 平台，可一站式调用全球 150 多个主流模型，兼容全球主流模型厂商协议，覆盖文本、图像、音频、视频、文件处理等全模态能力，服务超过 169 万企业及开发者用户。企业用户可免费领取 1200 万 Token，邀请好友最高可获得百亿 Token。</td>
-  </tr>
-</table>
-
-想支持项目或展示品牌？[联系维护者](mailto:1727532@qq.com)。
 
 ## 功能一览
 
@@ -221,7 +151,7 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 ### 1. 下载适合你的安装包
 
-前往 [GitHub Releases](https://github.com/BigPizzaV3/CodexPlusPlus/releases)，选择对应平台与架构：
+前往 [GitHub Releases](https://github.com/Victarry/CodexPlusPlus/releases)，选择对应平台与架构：
 
 | 你的设备 | 安装包 |
 | --- | --- |
@@ -317,8 +247,8 @@ another-model[128000]
 欢迎修复问题、完善文档、开发拓展，或分享你的使用建议。感谢每一位贡献者，也感谢帮助定位问题、测试版本和支持项目的人。
 
 <p align="center">
-  <a href="https://github.com/BigPizzaV3/CodexPlusPlus/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=BigPizzaV3/CodexPlusPlus" alt="CodexPlusPlus 代码贡献者头像墙" width="100%">
+  <a href="https://github.com/Victarry/CodexPlusPlus/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Victarry/CodexPlusPlus" alt="CodexPlusPlus 代码贡献者头像墙" width="100%">
   </a>
   <br><sub>代码贡献者头像由 <a href="https://contrib.rocks">contrib.rocks</a> 生成，点击查看贡献记录。</sub>
 </p>

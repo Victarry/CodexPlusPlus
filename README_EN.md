@@ -1,3 +1,5 @@
+> 此 fork 基于上游 v1.11.2，移除广告、赞助推荐和推广链接，保留 AGPL 许可证与原作者署名。构建与差异见 [FORK.md](FORK.md)。
+
 # Codex++
 
 <p align="center">
@@ -9,9 +11,9 @@
 </p>
 
 <p align="center">
-  <img alt="Release" src="https://img.shields.io/github/v/release/BigPizzaV3/CodexPlusPlus">
-  <img alt="Stars" src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus">
-  <img alt="License" src="https://img.shields.io/github/license/BigPizzaV3/CodexPlusPlus">
+  <img alt="Release" src="https://img.shields.io/github/v/release/Victarry/CodexPlusPlus">
+  <img alt="Stars" src="https://img.shields.io/github/stars/Victarry/CodexPlusPlus">
+  <img alt="License" src="https://img.shields.io/github/license/Victarry/CodexPlusPlus">
   <img alt="Rust" src="https://img.shields.io/badge/rust-1.85%2B-orange">
   <img alt="Tauri" src="https://img.shields.io/badge/tauri-2.x-24C8DB">
 </p>
@@ -20,7 +22,7 @@ Codex++ is a unified management application for the OpenAI Codex / ChatGPT deskt
 
 ## Quick Start
 
-Download the latest installer from [GitHub Releases](https://github.com/BigPizzaV3/CodexPlusPlus/releases):
+Download the latest installer from [GitHub Releases](https://github.com/Victarry/CodexPlusPlus/releases):
 
 - Windows: `CodexPlusPlus-*-windows-x64-setup.exe`
 - macOS Intel and Apple Silicon: `CodexPlusPlus-*-macos-universal.dmg`

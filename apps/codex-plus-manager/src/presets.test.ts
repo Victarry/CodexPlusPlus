@@ -41,20 +41,18 @@ test("DeepSeek preset uses the official Responses integration", () => {
   assert.deepEqual(preset.modelList, ["deepseek-v4-flash", "deepseek-v4-pro"]);
 });
 
-test("GrooRoute preset uses the configured sponsor endpoint", () => {
-  const preset = PRESETS.find((candidate) => candidate.id === "grooroute");
-  assert.ok(preset);
-  assert.equal(preset.name, "GrooRoute");
-  assert.equal(preset.baseUrl, "https://grooroute.com");
-  assert.equal(preset.protocol, "responses");
-  assert.equal(preset.model, "gpt-5.5");
-  assert.equal(preset.apiKeyUrl, "https://grooroute.com/register?aff=2B3KJR5SRNTX");
+
 });
 
-test("RunAPI preset uses the current v1 Base URL", () => {
-  const preset = PRESETS.find((candidate) => candidate.id === "runapi");
-  assert.ok(preset);
-  assert.equal(preset.baseUrl, "https://runapi.host/v1");
-  assert.equal(preset.protocol, "responses");
-});
+test("provider templates omit promoted resellers and referral parameters", () => {
+  for (const id of ["jojocode", "jojocode-max", "runapi", "grooroute", "apikeyfun"]) {
+    assert.equal(PRESETS.some((preset) => preset.id === id), false);
+  }
+  for (const preset of PRESETS) {
+    for (const value of [preset.websiteUrl, preset.apiKeyUrl]) {
+      if (!value) continue;
+      const params = new URL(value).searchParams;
+      for (const key of ["aff", "ref", "ic"]) assert.equal(params.has(key), false);
+    }
+  }
 });

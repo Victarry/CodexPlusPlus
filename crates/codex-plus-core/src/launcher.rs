@@ -1357,6 +1357,8 @@ impl LaunchHooks for DefaultLaunchHooks {
         if let Some(state_dir) = instance.state_dir.as_deref() {
             child_command.env(crate::paths::STATE_DIR_ENV, state_dir);
         }
+        #[cfg(target_os = "macos")]
+        configure_macos_user_data_environment(&mut child_command, &launch_extra_args);
         #[cfg(windows)]
         child_command.creation_flags(crate::windows_integration::CREATE_NO_WINDOW);
         let child = child_command
@@ -4216,6 +4218,14 @@ fn multi_instance_user_data_dir_from_args(args: &[String]) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 官方 macOS bootstrap 在 Electron 处理参数前选择数据目录，必须同步环境变量。
+#[cfg(target_os = "macos")]
+fn configure_macos_user_data_environment(command: &mut Command, args: &[String]) {
+    if let Some(directory) = multi_instance_user_data_dir_from_args(args) {
+        command.env("CODEX_ELECTRON_USER_DATA_PATH", directory);
+    }
+}
+
 fn codex_plus_default_codex_home() -> PathBuf {
     crate::codex_home::default_codex_home_dir()
 }
@@ -5274,6 +5284,29 @@ fn activate_packaged_app_blocking(app_user_model_id: &str, arguments: &str) -> a
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_user_data_environment_uses_the_isolated_directory() {
+        let mut command = Command::new("unused");
+        configure_macos_user_data_environment(
+            &mut command,
+            &["--user-data-dir=/Users/test/Library/Application Support/KTH".into()],
+        );
+        let value = command.as_std().get_envs()
+            .find(|(key, _)| *key == "CODEX_ELECTRON_USER_DATA_PATH")
+            .and_then(|(_, value)| value);
+        assert_eq!(value, Some(std::ffi::OsStr::new("/Users/test/Library/Application Support/KTH")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_user_data_environment_leaves_the_main_instance_unchanged() {
+        let mut command = Command::new("unused");
+        configure_macos_user_data_environment(&mut command, &["--remote-debugging-port=9229".into()]);
+        assert!(!command.as_std().get_envs()
+            .any(|(key, _)| key == "CODEX_ELECTRON_USER_DATA_PATH"));
+    }
 
     #[test]
     fn standalone_quota_unlock_is_opt_in_and_does_not_duplicate_full_enhancements() {

@@ -1037,26 +1037,6 @@ type UpdateResult = CommandResult<{
   progress?: number;
 }>;
 
-type AdItem = {
-  id?: string;
-  type: "sponsor" | "normal" | string;
-  title: string;
-  description: string;
-  url: string;
-  image?: string;
-  highlights?: string[];
-  expires_at?: string;
-};
-
-type AdsResult = CommandResult<{
-  version: number;
-  ads: AdItem[];
-  /// 兼容旧数据和旧管理端消费者的首条置顶赞助位。
-  topAd?: AdItem;
-  /// 独立置顶赞助位列表，供概览横幅轮播。
-  topAds?: AdItem[];
-}>;
-
 type ScriptMarketItem = {
   id: string;
   name: string;
@@ -1160,7 +1140,7 @@ const TOOL_ICONS: Record<string, string> = {
   claude: new URL("./assets/agents/claude.svg", import.meta.url).href,
 };
 
-type Route = "overview" | "relay" | "multiLaunch" | "grok" | "claude" | "relayEnvironment" | "requestLog" | "sessions" | "context" | "skills" | "weixin" | "enhance" | "dreamSkin" | "userScripts" | "pluginMarket" | "recommendations" | "agentCache" | "agentCollaboration" | "maintenance" | "about" | "settings";
+type Route = "overview" | "relay" | "multiLaunch" | "grok" | "claude" | "relayEnvironment" | "requestLog" | "sessions" | "context" | "skills" | "weixin" | "enhance" | "dreamSkin" | "userScripts" | "pluginMarket" | "agentCache" | "agentCollaboration" | "maintenance" | "about" | "settings";
 type Theme = "dark" | "light";
 
 const MANAGER_NAVIGATION_EVENT = "manager-navigation-requested";
@@ -1189,7 +1169,6 @@ const routes: Array<{ id: Route; label: string; icon: LucideIcon; badge?: string
   { id: "dreamSkin", get label() { return t("皮肤管理"); }, icon: Palette, tool: "codex" },
   { id: "userScripts", get label() { return t("拓展"); }, icon: FileCode2, tool: "codex" },
   { id: "pluginMarket", get label() { return t("Codex 插件市场"); }, icon: Store, tool: "codex" },
-  { id: "recommendations", get label() { return t("推荐内容"); }, icon: ExternalLink },
   // 缓存清理覆盖多个 AI 应用，属于应用级页面，在各工具下均可访问。
   { id: "agentCache", get label() { return t("AI Agent 缓存清理"); }, icon: Trash2 },
   // 跨客户端协作属于应用级能力，各工具下共用同一组任务。
@@ -1222,7 +1201,7 @@ const navigationSections: Array<{ label: string; routes: Route[]; placement?: "b
 ];
 
 /** 应用级入口放在最左栏；概览仍随当前 Agent 显示各自的状态。 */
-const globalNavigationRoutes: Route[] = ["recommendations", "agentCache", "agentCollaboration", "about", "settings"];
+const globalNavigationRoutes: Route[] = ["agentCache", "agentCollaboration", "about", "settings"];
 
 const defaultSettings: BackendSettings = {
   ...defaultWhaleBalanceSettings(),
@@ -1410,7 +1389,6 @@ export function App() {
     percent: 0,
     message: t("尚未运行安装包更新。"),
   });
-  const [ads, setAds] = useState<AdsResult | null>(null);
   const [scriptMarket, setScriptMarket] = useState<ScriptMarketResult | null>(null);
   const [launchForm, setLaunchForm] = useState({
     appPath: "",
@@ -2403,7 +2381,6 @@ export function App() {
       await refreshScriptMarket(true);
       await refreshUserScriptInventory();
     }
-    if (next === "recommendations") await refreshAds(true);
     if (next === "about") {
       await refreshOverview(true);
       await refreshLogs(true);
@@ -2963,14 +2940,6 @@ export function App() {
       setSettings(result);
       setSettingsForm(normalizeSettings(result.settings));
       showNotice(t("图片覆盖层"), result.message, result.status);
-    }
-  };
-
-  const refreshAds = async (silent = false) => {
-    const result = await run(() => call<AdsResult>("load_ads"));
-    if (result) {
-      setAds(result);
-      if (!silent) showResultNotice(t("推荐内容"), result, { silentSuccess: true });
     }
   };
 
@@ -3536,7 +3505,7 @@ export function App() {
   };
 
   useEffect(() => {
-    // 工具栏只依赖本地配置，不能排在广告等网络请求之后。
+    // 工具栏只依赖本地配置，启动时立即加载。
     // 切换语言会重载窗口，串行等待会让三个 Agent 图标长时间消失。
     void refreshTools(true);
     void (async () => {
@@ -3549,9 +3518,6 @@ export function App() {
         void checkUpdate(true);
       }
       await refreshOverview(true);
-      // 概览页的赞助商区块要显示真实广告源内容，所以启动就拉一次，
-      // 不要等到用户点进「推荐内容」才加载。
-      await refreshAds(true);
       if (!handledNavigation) await refreshSettings(true);
       await refreshRelay(true);
       await refreshEnvConflicts(true);
@@ -3972,7 +3938,6 @@ export function App() {
       importCcsProviders,
       refreshLiveContextEntries,
       syncLiveContextEntries,
-      refreshAds,
       refreshScriptMarket,
       refreshUserScriptInventory,
       reloadUserScripts,
@@ -4123,7 +4088,6 @@ export function App() {
           {route === "overview" ? (
             <OverviewScreen
               overview={overview}
-              ads={ads}
               activeTool={activeTool}
               toolEntries={toolEntries}
               actions={actions}
@@ -4250,7 +4214,6 @@ export function App() {
           ) : null}
           {route === "userScripts" ? <UserScriptsScreen settings={settings} market={scriptMarket} actions={actions} /> : null}
           {route === "pluginMarket" ? <PluginMarketScreen /> : null}
-          {route === "recommendations" ? <RecommendationsScreen ads={ads} actions={actions} /> : null}
           {route === "agentCache" ? <AgentCachePanel /> : null}
           {route === "agentCollaboration" ? <AgentCollaborationPage /> : null}
           {route === "maintenance" ? (
@@ -4572,7 +4535,6 @@ type Actions = {
   importCcsProviders: (bindings?: Record<string, string>) => Promise<void>;
   refreshLiveContextEntries: () => Promise<LiveContextEntriesResult | null>;
   syncLiveContextEntries: (settings: BackendSettings, silent?: boolean) => Promise<LiveContextEntriesResult | null>;
-  refreshAds: () => Promise<void>;
   refreshScriptMarket: () => Promise<void>;
   refreshUserScriptInventory: () => Promise<SettingsResult | null>;
   reloadUserScripts: () => Promise<void>;
@@ -5064,66 +5026,13 @@ function WeixinConnectScreen({
   );
 }
 
-/// 概览页的两个独立广告位。
-///
-/// 这里只读取广告源的 `top_ad/topAds`，不会读取普通 `ads` 推荐池。
-/// `top_ad` 可以是单个对象，也可以是数组；最多显示前两个有效广告。
-function SponsorBoard({ ads, actions }: { ads: AdsResult | null; actions: Actions }) {
-  const sourceAds = ads?.topAds?.length ? ads.topAds : ads?.topAd ? [ads.topAd] : [];
-  const featured = sourceAds.filter((ad) => !isExpiredAd(ad)).slice(0, 2);
-
-  if (featured.length === 0) return null;
-
-  return (
-    <div className={`sponsor-board ${featured.length === 1 ? "sponsor-board-single" : ""}`}>
-      {featured.map((ad) => (
-        <Panel className="jojocode-overview sponsor-slot" key={ad.id || ad.title}>
-          <CardContent>
-            <div className="sponsor-slot-content">
-              <div className="sponsor-slot-main">
-                {ad.image ? (
-                  <img alt="" className="sponsor-logo" src={ad.image} />
-                ) : (
-                  <div className="jojocode-overview-mark">
-                    <Network className="h-5 w-5" />
-                  </div>
-                )}
-                <div className="sponsor-slot-copy">
-                  <span className="eyebrow">{t("推荐内容")}</span>
-                  <h2>{formatAdTitle(ad.title)}</h2>
-                  <p className="recommendation-description" title={ad.description}>{ad.description}</p>
-                </div>
-              </div>
-              {ad.highlights?.length ? (
-                <div className="jojocode-model-tags sponsor-slot-tags">
-                  {ad.highlights.map((item) => (
-                    <span key={item}>{item}</span>
-                  ))}
-                </div>
-              ) : null}
-              <div className="sponsor-slot-actions">
-                <Button onClick={() => void actions.openExternalUrl(ad.url)}>
-                  <ExternalLink className="h-4 w-4" />
-                  {t("打开推荐内容")}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Panel>
-      ))}
-    </div>
-  );
-}
-
 function OverviewScreen({
   overview,
-  ads,
   activeTool,
   toolEntries,
   actions,
 }: {
   overview: OverviewResult | null;
-  ads: AdsResult | null;
   activeTool: ToolId;
   toolEntries: ToolEntry[];
   actions: Actions;
@@ -5132,8 +5041,6 @@ function OverviewScreen({
   const tool = toolEntries.find((entry) => entry.id === activeTool);
   return (
     <>
-      {/* 置顶推荐位两个工具下都显示，内容与「推荐内容」页同源。 */}
-      <SponsorBoard ads={ads} actions={actions} />
       {activeTool === "codex" ? (
         <>
           <Panel>
@@ -8874,54 +8781,6 @@ function SessionsScreen({
   );
 }
 
-/// 推荐内容页：列出广告源里的全部推荐（含 sponsor 与 normal）。
-///
-/// 概览页置顶位独立配置；展示多条时也从推荐池去重，避免重复出现。
-function RecommendationsScreen({ ads, actions }: { ads: AdsResult | null; actions: Actions }) {
-  const items = (ads?.ads ?? []).filter((ad) => !isExpiredAd(ad));
-  // 置顶位排在最前，并把推荐池里指向同一家的那条去掉 —— 广告源里同一条赞助商
-  // 常常同时出现在 top_ad 和 ads 里（两个 id、同一个落地页），只比 id 去不掉。
-  const topAds = (ads?.topAds?.length ? ads.topAds : ads?.topAd ? [ads.topAd] : []).filter((ad) => !isExpiredAd(ad));
-  const topIdentities = new Set(topAds.map(adIdentity));
-  const pool = items.filter((ad) => !topIdentities.has(adIdentity(ad)));
-  const ordered = [...topAds, ...pool];
-  const sponsors = ordered.filter((ad) => ad.type === "sponsor");
-  const normal = ordered.filter((ad) => ad.type === "normal");
-  return (
-    <>
-      <Panel>
-        <CardHead title={t("推荐内容")} detail={t("与 Codex 内插件菜单使用同一个远端广告源")} />
-        <CardContent>
-          <div className="recommend-hero">
-            <div>
-              <strong>{ads ? tf("已加载 {0} 条推荐", [ordered.length]) : t("尚未加载推荐内容")}</strong>
-              <span>{t("内容来自 Codex++ 广告源，含置顶推荐与普通推荐。")}</span>
-            </div>
-            <Button onClick={() => void actions.refreshAds()}>
-              <RefreshCw className="h-4 w-4" />
-              {t("刷新推荐")}
-            </Button>
-          </div>
-        </CardContent>
-      </Panel>
-      {sponsors.length ? (
-        <Panel>
-          <CardHead title={t("赞助商推荐")} detail={tf("{0} 条", [sponsors.length])} />
-          <CardContent>
-            <AdGrid actions={actions} ads={sponsors} empty={t("暂无赞助商推荐。")} />
-          </CardContent>
-        </Panel>
-      ) : null}
-      <Panel>
-        <CardHead title={t("普通推荐")} detail={tf("{0} 条", [normal.length])} />
-        <CardContent>
-          <AdGrid actions={actions} ads={normal} empty={t("暂无普通推荐。")} />
-        </CardContent>
-      </Panel>
-    </>
-  );
-}
-
 function MaintenanceScreen({
   overview,
   launchPending,
@@ -9143,19 +9002,19 @@ function AboutScreen({
   return (
     <>
       <Panel>
-        <CardHead title={t("关于 Codex++")} detail={t("本地 Codex 增强、管理工具和安装包维护")} />
+        <CardHead title={t("关于 Codex++")} detail="无广告 fork · Victarry/CodexPlusPlus · 基于上游 v1.11.2" />
         <CardContent>
           <div className="metric-list">
             <Metric label={t("Codex++ 版本")} value={overview?.current_version ?? update?.currentVersion ?? "-"} />
             <Metric label={t("Codex 版本")} value={overview?.codex_version ?? t("未检测到")} />
-            <Metric label={t("项目地址")} value="github.com/BigPizzaV3/CodexPlusPlus" />
+            <Metric label={t("项目地址")} value="github.com/Victarry/CodexPlusPlus" />
           </div>
           <Toolbar>
-            <Button onClick={() => void actions.openExternalUrl("https://github.com/BigPizzaV3/CodexPlusPlus")} variant="secondary">
+            <Button onClick={() => void actions.openExternalUrl("https://github.com/Victarry/CodexPlusPlus")} variant="secondary">
               <ExternalLink className="h-4 w-4" />
               {t("打开项目主页")}
             </Button>
-            <Button onClick={() => void actions.openExternalUrl("https://github.com/BigPizzaV3/CodexPlusPlus/issues")} variant="secondary">
+            <Button onClick={() => void actions.openExternalUrl("https://github.com/Victarry/CodexPlusPlus/issues")} variant="secondary">
               <ExternalLink className="h-4 w-4" />
               {t("反馈问题")}
             </Button>
@@ -14290,67 +14149,6 @@ function ScriptRow({ script, actions }: { script: NonNullable<UserScriptInventor
   );
 }
 
-function AdGrid({ ads, empty, actions }: { ads: AdItem[]; empty: string; actions: Actions }) {
-  if (!ads.length) return <div className="empty">{empty}</div>;
-  return (
-    <div className="ad-grid">
-      {ads.map((ad) => (
-        <button className="ad-card" key={ad.id || `${ad.type}-${ad.title}`} onClick={() => void actions.openExternalUrl(ad.url)} type="button">
-          {ad.image ? <img alt="" className="ad-image" src={ad.image} /> : null}
-          <div className="ad-content">
-            <strong>{formatAdTitle(ad.title)}</strong>
-            <p className="recommendation-description" title={ad.description}>{ad.description}</p>
-          </div>
-          {ad.highlights?.length ? (
-            <div className="ad-tags">
-              {ad.highlights.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
-          ) : null}
-          <span className="ad-link">
-            {t("打开")}
-            <ExternalLink className="h-4 w-4" />
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/// 广告标题原样展示。
-///
-/// 以前这里会在 `｜` / `|` 处截断，把「火山引擎｜方舟 Agent Plan」显示成
-/// 「火山引擎」—— 后半段是作者写的产品名，不该被我们悄悄丢掉。既然卡片
-/// 已经改成按内容自适应高度，就不再需要在标题上省这一点空间。
-function formatAdTitle(title: string) {
-  return title.trim() || title;
-}
-
-/// 广告的「同一家」判据。
-///
-/// 只比 id 是不够的：置顶位和推荐池里的同一条赞助商往往有两个 id
-/// （`jojocode-top` vs `jojocode-codex-relay`），但指向同一个去处。
-/// 所以按落地 URL（去 query / 尾斜杠）比，退回标题。
-function adIdentity(ad: AdItem): string {
-  const url = (ad.url || "").trim();
-  if (url) {
-    try {
-      const parsed = new URL(url);
-      return `${parsed.host}${parsed.pathname}`.replace(/\/+$/, "").toLowerCase();
-    } catch {
-      return url.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
-    }
-  }
-  return (ad.title || "").trim().toLowerCase();
-}
-
-function isExpiredAd(ad: AdItem) {
-  if (!ad.expires_at) return false;
-  const expiresAt = Date.parse(ad.expires_at);
-  return Number.isFinite(expiresAt) && expiresAt < Date.now();
-}
-
 function routeTitle(route: Route) {
   return routes.find((item) => item.id === route)?.label ?? t("概览");
 }
@@ -14372,7 +14170,6 @@ function routeSubtitle(route: Route) {
     dreamSkin: t("Codex-Dream-Skin 风格主题和换图"),
     userScripts: t("内置和用户自定义拓展清单"),
     pluginMarket: t("检索插件，按需下载并安装到 Codex"),
-    recommendations: t("普通推荐内容"),
     agentCache: t("扫描 Codex、Claude 与 Codex++ 的已知缓存目录，由你选择清理项目。"),
     agentCollaboration: t("连接 Codex、DeepSeek Harness 与 Claude Code，派发任务并查看结果。"),
     maintenance: t("入口检查与修复、开机启动与应用路径"),

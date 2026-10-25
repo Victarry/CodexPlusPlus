@@ -411,6 +411,7 @@
   // 三者各自是一个独立页面，不再作为弹窗里的二级 tab。
   const codexPlusRailNavId = "codex-plus-rail-nav";
   const codexPlusRailExtensionsId = "codex-plus-rail-extensions";
+  // 仅用于清理旧版注入残留的推荐入口，不再创建该节点。
   const codexPlusRailSponsorId = "codex-plus-rail-sponsor";
   const codexPlusRailPluginMarketId = "codex-plus-rail-plugin-market";
   const codexPlusSidebarPluginMarketId = "codex-plus-sidebar-plugin-market";
@@ -418,7 +419,6 @@
   const codexPlusRailSelector = "nav[data-app-navigation-rail]";
   const codexPlusRailDestinationSelector = "[data-sidebar-destination]";
   const codexPlusExtensionsTab = "extensions";
-  const codexPlusSponsorTab = "sponsor";
   // Codex 的界面缩放是给内层布局节点设 CSS zoom，不是改 documentElement。
   // 我们的 overlay 挂在 body 下、落在那棵缩放子树之外，只能自己读这个变量跟随。
   const codexPlusWindowZoomVar = "--codex-window-zoom";

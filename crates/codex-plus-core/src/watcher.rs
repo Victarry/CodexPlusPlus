@@ -913,7 +913,7 @@ pub fn process_id_is_running(process_id: u32) -> Option<bool> {
     }
     let process_id_arg = process_id.to_string();
     let output = Command::new("ps")
-        .args(["-p", process_id_arg.as_str(), "-o", "pid="])
+        .args(["-p", process_id_arg.as_str(), "-o", "stat="])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -922,18 +922,41 @@ pub fn process_id_is_running(process_id: u32) -> Option<bool> {
             _ => None,
         };
     }
-    let process_ids = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().parse::<u32>())
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    Some(process_ids.contains(&process_id))
+    let state = String::from_utf8_lossy(&output.stdout);
+    let state = state.trim();
+    // 已退出的 worker 可能暂时留作僵尸进程；不能因此阻止同一实例重新启动。
+    Some(!state.is_empty() && !state.starts_with('Z'))
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub fn process_id_is_running(_process_id: u32) -> Option<bool> {
     None
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_process_presence_tests {
+    use super::*;
+
+    #[test]
+    fn macos_process_presence_ignores_an_exited_unreaped_worker() {
+        let mut child = Command::new("/usr/bin/true").spawn().unwrap();
+        let mut stopped = false;
+        for _ in 0..50 {
+            if process_id_is_running(child.id()) == Some(false) {
+                stopped = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let status = child.wait().unwrap();
+        assert!(status.success());
+        assert!(stopped, "an exited worker must not block the next launch");
+    }
+
+    #[test]
+    fn macos_process_presence_keeps_a_live_manager_running() {
+        assert_eq!(process_id_is_running(std::process::id()), Some(true));
+    }
 }
 
 #[cfg(windows)]

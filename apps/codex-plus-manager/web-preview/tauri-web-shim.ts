@@ -186,7 +186,6 @@ export async function invoke<T = unknown>(command: string, args: Record<string, 
     case "startup_options": return ok({ showUpdate: false }) as T;
     case "consume_pending_manager_navigation": return null as T;
     case "load_overview": return overview as T;
-    case "load_ads": return ok({ version: 1, ads: [], topAds: [] }) as T;
     case "load_settings":
     case "save_settings":
     case "reset_settings":

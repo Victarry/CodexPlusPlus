@@ -212,7 +212,6 @@ pub fn run() {
             commands::sync_providers_now,
             commands::load_provider_sync_recovery,
             commands::recover_provider_sync,
-            commands::load_ads,
             commands::refresh_script_market,
             commands::refresh_plugin_market,
             commands::install_plugin_market_item,

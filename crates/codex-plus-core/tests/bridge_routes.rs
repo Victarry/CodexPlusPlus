@@ -15,6 +15,12 @@ use codex_plus_core::user_scripts::UserScriptManager;
 use serde_json::{Value, json};
 
 #[tokio::test]
+async fn removed_promotional_route_cannot_start_a_network_fetch() {
+    let result = handle_bridge_request(test_context(), "/ads", json!({})).await;
+    assert_eq!(result["message"], "Unknown bridge path");
+}
+
+#[tokio::test]
 async fn bridge_routes_cover_all_current_paths() {
     let ctx = test_context();
 
@@ -46,7 +52,6 @@ async fn bridge_routes_cover_all_current_paths() {
             "/llm-proxy",
             json!({"url": "http://example.com", "method": "POST"}),
         ),
-        ("/ads", json!({})),
         ("/script-market/list", json!({})),
         (
             "/script-market/install",
@@ -550,10 +555,6 @@ async fn runtime_status_devtools_repair_and_ads_routes_are_dispatched() {
     assert_eq!(
         handle_bridge_request(ctx.clone(), "/backend/status", json!({})).await,
         json!({"status": "ok", "message": "后端已连接", "version": codex_plus_core::version::VERSION, "hideOfficialUsageAlert": false})
-    );
-    assert_eq!(
-        handle_bridge_request(ctx.clone(), "/ads", json!({})).await,
-        json!({"version": 1, "ads": [{"id": "runtime-ad"}]})
     );
 }
 
@@ -1347,9 +1348,6 @@ impl BridgeRuntimeService for FakeRuntime {
         }))
     }
 
-    async fn ads(&self) -> anyhow::Result<Value> {
-        Ok(json!({"version": 1, "ads": [{"id": "runtime-ad"}]}))
-    }
 }
 
 impl FakeRuntime {
