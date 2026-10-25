@@ -14235,6 +14235,7 @@
       #${codexPlusUsageStatusLineId} .codex-plus-usage-value{font-weight:500}
       #${codexPlusUsageStatusLineId} [data-usage="activity"]{white-space:normal;text-align:center}
       #${codexPlusUsageStatusLineId} .codex-plus-usage-item svg{flex:0 0 auto;opacity:.8}
+      #${codexPlusUsageStatusLineId} .codex-plus-usage-metrics{display:inline-flex;align-items:center;gap:16px}
       /* 本轮结束超过阈值只淡化速度：缓存命中与上下文占用仍然是当前值，不该跟着变灰。 */
       #${codexPlusUsageStatusLineId}[data-stale="true"] .codex-plus-usage-item[data-usage="speed"]{opacity:.55}
     `;
@@ -14290,6 +14291,9 @@
   function codexPlusUsageBuild(node) {
     node.textContent = "";
     const ring = codexPlusUsageRingIcon();
+    // 保持 TPS / 缓存 / 上下文一起换行，避免新增计数后只把占用环挤到下一行。
+    const metrics = document.createElement("span");
+    metrics.className = "codex-plus-usage-metrics";
     const parts = {
       activity: codexPlusUsageItem(node, "activity", "activity", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M13 5a5 5 0 1 0 0 6M13 2v4H9" } },
@@ -14297,18 +14301,19 @@
       tools: codexPlusUsageItem(node, "tools", "tools", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "m5 3-3 5 3 5M11 3l3 5-3 5M9 2 7 14" } },
       ]).svg),
-      speed: codexPlusUsageItem(node, "speed", "speed", codexPlusUsageIcon([
+      speed: codexPlusUsageItem(metrics, "speed", "speed", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M2 12.5a6 6 0 0 1 12 0" } },
         { tag: "path", attrs: { d: "M8 12.5 10.8 8.6" } },
       ]).svg),
-      cache: codexPlusUsageItem(node, "cache", "cache", codexPlusUsageIcon([
+      cache: codexPlusUsageItem(metrics, "cache", "cache", codexPlusUsageIcon([
         { tag: "path", attrs: { d: "M8 2.2c2.5 0 4.5.8 4.5 1.8S10.5 5.8 8 5.8 3.5 5 3.5 4 5.5 2.2 8 2.2Z" } },
         { tag: "path", attrs: { d: "M3.5 4v8c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8V4" } },
         { tag: "path", attrs: { d: "M3.5 8c0 1 2 1.8 4.5 1.8S12.5 9 12.5 8" } },
       ]).svg),
-      context: codexPlusUsageItem(node, "context", "context", ring.svg),
+      context: codexPlusUsageItem(metrics, "context", "context", ring.svg),
       ring: ring.ring,
     };
+    node.appendChild(metrics);
     codexPlusUsageState.parts = parts;
     return parts;
   }
