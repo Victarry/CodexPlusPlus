@@ -34,7 +34,8 @@ permissions:
 
 jobs:
   windows-installer:
-    if: github.event_name == 'release' || inputs.platform != 'macos'
+    # fork 的发行包在本机构建；自动签名流水线只服务原仓库，避免空凭据发布。
+    if: (github.event_name == 'release' && github.repository == 'BigPizzaV3/CodexPlusPlus') || (github.event_name == 'workflow_dispatch' && inputs.platform != 'macos')
     runs-on: windows-latest
     steps:
       - name: Checkout release tag
@@ -135,7 +136,7 @@ jobs:
             dist/windows/*.zip
 
   macos-dmg:
-    if: github.event_name == 'release' || inputs.platform != 'windows'
+    if: (github.event_name == 'release' && github.repository == 'BigPizzaV3/CodexPlusPlus') || (github.event_name == 'workflow_dispatch' && inputs.platform != 'windows')
     # 单个通用包（universal）同时支持 Intel 与 Apple Silicon，
     # 用户不必再自己判断架构，Release 也只多一个而不是两个产物。
     name: macOS DMG (universal)
@@ -290,7 +291,7 @@ jobs:
   latest-json:
     name: Upload static latest.json
     # 单平台补跑时另一个 job 会跳过；成功或跳过才允许更新元数据。
-    if: always() && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
+    if: always() && (needs.windows-installer.result == 'success' || needs.macos-dmg.result == 'success') && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
     runs-on: ubuntu-latest
     needs:
       - windows-installer

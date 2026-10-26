@@ -11,10 +11,10 @@
 - 删除 Rust 广告模块、Tauri 广告命令和桥接广告路由，不请求远端广告清单。
 - 删除默认主题的内置推广内容、付费推荐服务商模板与邀请码；保留现有用户 provider、会话以及自定义主题元数据能力。
 - 删除 README、网站和预览中的赞助区，移除广告图片与快照；重新生成管理器预览。
-- 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
+- 更新检查与下载入口指向本 fork，防止覆盖回上游原版。本 fork 使用独立版本号，首个发行版为 v1.11.3。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-side-chat-layout-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
+当前 fork 版本为 1.11.3；「关于」显示无广告 fork，诊断构建标识为 `victarry-release-v1.11.3-20261026`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -34,6 +34,14 @@ cargo build --locked --release -p codex-plus-manager
 本地实测沿用 `AGENTS.md` 中固定的 `dist/local-build/Codex++.app`，在其隔离状态目录中启动。正式替换本机安装前备份完整 `.app`，保留原 `Info.plist`、资源、配置、认证和双 profile 目录关系，只替换 `Contents/MacOS/CodexPlusPlus` 并重新签名。用户无需卸载或删除原配置。
 
 本机重签使用 ad-hoc 签名，不具备上游发行包的 Developer ID 公证身份。不要以本地测试结果替代未来发布时的签名与安装验证。
+
+## fork 发行包
+
+首个独立发行版为 `v1.11.3`，仅提供 macOS Apple Silicon（arm64）DMG / ZIP，使用 ad-hoc 签名且未公证。版本在 Cargo workspace、前端 package / lock 和 Tauri 配置中同步。发布说明见 `docs/release/v1.11.3-notes.md`。
+
+先完成上述检查并运行 `node scripts/relaunch-local.mjs`，随后提交源码，确认工作区干净，再运行 `node scripts/package-fork-release.mjs`。脚本只读取源码和当前主机的原生构建产物，不复制已安装应用或任何用户配置；产出位于 `dist/releases/v<版本>/`。目录已存在时停止，保留原产物。
+
+发布时推送已核验的 main 和对应 annotated tag，先将 DMG、ZIP、`BUILD-INFO.json`、`SHA256SUMS.txt` 与 `latest.json` 上传到草稿，逐项检查附件及元数据后再公开并设为 Latest。原仓库的自动签名发布流程不在 fork 的 published 事件上执行；需要使用时可显式手动触发。未来新增平台时先验证对应二进制，再列入发行附件。
 
 ## 保存侧边聊天为正式聊天
 

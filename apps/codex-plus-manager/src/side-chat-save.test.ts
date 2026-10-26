@@ -81,7 +81,7 @@ test("完整保存 Unicode、原始工具 JSON、附件及未知条目，不遗�
 
 test("历史过大时明确失败，不截断", () => {
   const c = conversation();
-  c.turnHistory.history.entitiesByKey.first.items[0].content[0].text = "x".repeat(33 * 1024 * 1024);
+  c.turnHistory.history.entitiesByKey.first.items[0].content![0].text = "x".repeat(33 * 1024 * 1024);
   assert.throws(() => api().snapshot(c, "ssh:dev"), /32 MiB/);
 });
 
