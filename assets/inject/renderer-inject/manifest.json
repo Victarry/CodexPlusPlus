@@ -43,7 +43,7 @@
     {
       "name": "60-plugin-marketplace.js",
       "description": "插件市场请求/响应补丁、本地兜底与合并",
-      "lines": 1897
+      "lines": 1902
     },
     {
       "name": "61-plugin-market-ui.js",
@@ -83,7 +83,7 @@
     {
       "name": "83-usage-statusline.js",
       "description": "输入框下方用量状态栏：生成速度、缓存命中率与上下文占用",
-      "lines": 560
+      "lines": 583
     },
     {
       "name": "84-proxy-request-status.js",

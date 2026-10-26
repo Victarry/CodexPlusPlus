@@ -8815,10 +8815,15 @@
     return sessionHostEvidenceFromRow(row, sessionId, scopedHost).hostId;
   }
 
-  function sessionHostEvidenceFromRow(row, sessionId, scopedHost) {
+  function sessionHostEvidenceFromRow(row, sessionId, scopedHost, { localPrefixIsKind = false } = {}) {
     const hosts = new Set();
     let matchingMetadata = 0;
     let identityConflict = false;
+    // 用量栏兼容当前原生 sidebar 的 local:<uuid> 种类键；物理主机由
+    // host-id / 成对元数据提供。其他调用方沿用已有的严格冲突处理。
+    const scopeHost = (value) => localPrefixIsKind
+      ? value === "local" ? null : value?.replace(/^local:/, "")
+      : value;
     const add = (value) => {
       if (typeof value === "string" && value.trim()) hosts.add(value.trim());
     };
@@ -8827,7 +8832,7 @@
       const raw = value.trim();
       const scoped = raw.match(/^(.+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
       const id = normalizedCodexThreadUuid(raw) || scoped?.[2];
-      return id ? { id: id.toLowerCase(), host: scoped?.[1] } : raw === sessionId ? { id: raw, host: null } : null;
+      return id ? { id: id.toLowerCase(), host: scopeHost(scoped?.[1]) } : raw === sessionId ? { id: raw, host: null } : null;
     };
     const canonicalWanted = normalizedCodexThreadUuid(sessionId);
     const wanted = canonicalWanted ? canonicalWanted.toLowerCase() : sessionId || "";
@@ -8860,7 +8865,7 @@
     };
     add(row.getAttribute("data-app-action-sidebar-thread-host-id"));
     const rowIdentity = identity(row.getAttribute("data-app-action-sidebar-thread-id"));
-    if (rowIdentity?.id === wanted) add(scopedHost || rowIdentity.host);
+    if (rowIdentity?.id === wanted) add(scopeHost(scopedHost) || rowIdentity.host);
     // 只接受同一条会话的成对身份。原生 locator 为 {hostId,threadId}，
     // sidebarThreadRow 为 {hostId,id}；bare UUID 或不相关祖先的 hostId 都不说明归属。
     const fiberKey = Object.getOwnPropertyNames(row).find((key) => key.startsWith("__reactFiber$"));
@@ -14205,6 +14210,7 @@
     failures: 0,
     inFlight: false,
     lastFingerprint: "",
+    lastReportedPhase: "",
     cache: new Map(),
     observer: null,
   };
@@ -14346,9 +14352,12 @@
    */
   function codexPlusUsageThreadId(card) {
     const root = card?.closest("[data-codex-composer-root]");
-    const inThread = root?.getAttribute("data-composer-placement") === "thread";
+    // 当前客户端的输入框 root 可以嵌在 form 中；portal 和 placement 在外层 form。
+    const scope = card?.closest("[data-composer-placement]") || root;
+    const inThread = scope?.getAttribute("data-composer-placement") === "thread";
     const selected = document.querySelector('[data-app-action-sidebar-thread-selected="true"][data-app-action-sidebar-thread-id]');
-    const raw = root?.querySelector("[data-above-composer-conversation-id]")?.getAttribute("data-above-composer-conversation-id")
+    const raw = (scope?.querySelector("[data-above-composer-conversation-id]")
+      || root?.querySelector("[data-above-composer-conversation-id]"))?.getAttribute("data-above-composer-conversation-id")
       || (inThread ? selected?.getAttribute("data-app-action-sidebar-thread-id") : "");
     const parse = (value) => {
       value = String(value || "").trim();
@@ -14362,18 +14371,27 @@
     };
     const current = parse(raw);
     if (!current) return "";
-    if (selected && typeof sessionRefFromRow === "function") {
-      const ref = sessionRefFromRow(selected);
-      const row = parse(ref?.session_id);
-      if (row?.id === current.id) {
-        const host = ref.host_id || row.host;
-        if (current.host && host && current.host !== host) return "";
-        current.host ||= host || "";
+    const hosts = new Set();
+    const keyHost = current.host === "local" ? "" : current.host.replace(/^local:/, "");
+    if (keyHost) hosts.add(keyHost);
+    let conflict = false;
+    if (typeof sessionHostEvidenceFromRow === "function") {
+      for (const element of new Set([scope, root, selected])) {
+        if (!element) continue;
+        if (element === selected && parse(element.getAttribute("data-app-action-sidebar-thread-id"))?.id !== current.id) continue;
+        const evidence = sessionHostEvidenceFromRow(element, current.id, undefined, { localPrefixIsKind: true });
+        conflict ||= evidence.reason === "conflicting";
+        if (evidence.hostId) hosts.add(evidence.hostId);
       }
+    } else if (selected && typeof sessionRefFromRow === "function") {
+      const ref = sessionRefFromRow(selected);
+      if (parse(ref?.session_id)?.id === current.id && ref.host_id) hosts.add(ref.host_id);
     }
     // 裸 UUID 不能证明它属于本机；只接受与当前会话配对的主机归属。
-    if (!current.host || current.host.length > 256 || /[\x00-\x1f]/.test(current.host)) return "";
-    return current.host === "local" ? current.id : `${current.host}\x1f${current.id}`;
+    if (conflict || hosts.size !== 1) return "";
+    const host = [...hosts][0];
+    if (host.length > 256 || /[\x00-\x1f]/.test(host)) return "";
+    return host === "local" ? current.id : `${host}\x1f${current.id}`;
   }
 
   function codexPlusUsageEnsureNode(card) {
@@ -14547,6 +14565,16 @@
       contextWindow > 0 ? `窗口 ${contextWindow}` : "",
     ].filter(Boolean).join(" · "));
     node.setAttribute("aria-label", `${text.aria}：${tokensText}，${countsText}，${toolsText}，${text.speed(speed)}，${text.cache(cache)}，${context}`);
+    // 只记录每次会话的阶段转换，用于核验真实窗口接线；不记录 UUID 或消息内容。
+    const phase = !activity ? "waiting" : activity.scan_complete ? "ready" : "scanning";
+    const reportKey = `${codexPlusUsageState.threadId}\x1f${phase}`;
+    if (codexPlusUsageState.lastReportedPhase !== reportKey) {
+      codexPlusUsageState.lastReportedPhase = reportKey;
+      sendCodexPlusDiagnostic("usage_statusline_state", {
+        version: 6, phase, source: sourceHost === "local" ? "local" : "remote",
+        hasTokens: Number.isSafeInteger(totalTokens) && totalTokens >= 0, mounted: true,
+      });
+    }
   }
 
   function codexPlusUsageSchedule(delay) {
@@ -14706,7 +14734,7 @@
   codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 5,
+    version: 6,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;

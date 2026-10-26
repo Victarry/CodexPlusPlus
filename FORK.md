@@ -14,7 +14,7 @@
 - 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-remote-usage-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
+应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-remote-identity-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -76,6 +76,10 @@ node --test apps/codex-plus-manager/src/usage-statusline.test.ts
 采集器经已有 SSH 启动 Python 3 标准库程序，通过 stdio 交换数据。远端无需安装插件、修改认证、写入文件、重启 app-server 或开放端口。只传回用量数字、时间戳、轮次和工具 ID 等计数元数据，不传提示词、工具参数或输出。每 host 复用连接；增量读取最多 8 MiB / 512 条元数据，每行上限 256 KiB，缓存和响应大小有界。两端缓存逐出及日志改写均触发重新扫描；预热期间显示“会话统计中…”。首次读取大历史需要多个轮询周期。
 
 前端缓存及请求按 `(host_id, session_id)` 隔离；来源显示在状态栏悬浮提示中。断线时保留对应会话的最近读数并标记，重连后继续读取。模型 / 工具口径复用本机 Rust 计数器；TPS 仍是用量事件间隔估算，并非服务端纯解码速度。原来的 `session-token-counter.js` 扩展应在检测到原生 `[data-usage="tokens"]` 时让位，避免显示两份累计用量。
+
+当前客户端 sidebar 的 `local:<uuid>` 是会话种类键，SSH 也使用该格式；统计栏从成对的会话 ID 与物理 `hostId` 识别来源，不能把 `local:` 当作本机证据。嵌套 composer 从当前 form 获取 portal；侧栏隐藏时也可使用当前 composer 的成对元数据。冲突和新会话草稿仍拒绝取数。此兼容模式只由统计栏显式启用，其他会话操作保留原有冲突策略。
+
+本机诊断日志 `renderer.usage_statusline_state` 只记录每次会话的 waiting / scanning / ready 阶段、主机类别和是否已有 token，不记录 UUID、提示词或工具正文，可用于区分取数测试与真实窗口挂载。
 
 升级已打开的多开窗口时，内部 `--codex-plus-multi-worker-resume <worker-options.json>` 模式只恢复后台增强，不启动或重启 Codex。它需要原实例端点仍存活、相同隔离环境和原参数；普通使用继续通过管理器启动。退出旧 worker 与替换清单前必须核对 PID 和实例身份，不能把本机或其他 profile 的 worker 一并结束。
 

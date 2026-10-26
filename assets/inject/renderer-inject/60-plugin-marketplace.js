@@ -702,10 +702,15 @@
     return sessionHostEvidenceFromRow(row, sessionId, scopedHost).hostId;
   }
 
-  function sessionHostEvidenceFromRow(row, sessionId, scopedHost) {
+  function sessionHostEvidenceFromRow(row, sessionId, scopedHost, { localPrefixIsKind = false } = {}) {
     const hosts = new Set();
     let matchingMetadata = 0;
     let identityConflict = false;
+    // 用量栏兼容当前原生 sidebar 的 local:<uuid> 种类键；物理主机由
+    // host-id / 成对元数据提供。其他调用方沿用已有的严格冲突处理。
+    const scopeHost = (value) => localPrefixIsKind
+      ? value === "local" ? null : value?.replace(/^local:/, "")
+      : value;
     const add = (value) => {
       if (typeof value === "string" && value.trim()) hosts.add(value.trim());
     };
@@ -714,7 +719,7 @@
       const raw = value.trim();
       const scoped = raw.match(/^(.+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
       const id = normalizedCodexThreadUuid(raw) || scoped?.[2];
-      return id ? { id: id.toLowerCase(), host: scoped?.[1] } : raw === sessionId ? { id: raw, host: null } : null;
+      return id ? { id: id.toLowerCase(), host: scopeHost(scoped?.[1]) } : raw === sessionId ? { id: raw, host: null } : null;
     };
     const canonicalWanted = normalizedCodexThreadUuid(sessionId);
     const wanted = canonicalWanted ? canonicalWanted.toLowerCase() : sessionId || "";
@@ -747,7 +752,7 @@
     };
     add(row.getAttribute("data-app-action-sidebar-thread-host-id"));
     const rowIdentity = identity(row.getAttribute("data-app-action-sidebar-thread-id"));
-    if (rowIdentity?.id === wanted) add(scopedHost || rowIdentity.host);
+    if (rowIdentity?.id === wanted) add(scopeHost(scopedHost) || rowIdentity.host);
     // 只接受同一条会话的成对身份。原生 locator 为 {hostId,threadId}，
     // sidebarThreadRow 为 {hostId,id}；bare UUID 或不相关祖先的 hostId 都不说明归属。
     const fiberKey = Object.getOwnPropertyNames(row).find((key) => key.startsWith("__reactFiber$"));

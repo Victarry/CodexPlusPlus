@@ -17,6 +17,8 @@ import ts from "typescript";
 const fragmentDir = path.resolve(import.meta.dirname, "../../../assets/inject/renderer-inject");
 const shardSource = readFileSync(path.join(fragmentDir, "83-usage-statusline.js"), "utf8");
 const shard = ts.createSourceFile("83-usage-statusline.js", shardSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const sessionRefSource = readFileSync(path.join(fragmentDir, "60-plugin-marketplace.js"), "utf8");
+const sessionRefHelpers = sessionRefSource.slice(sessionRefSource.indexOf("  function isClientNewThreadId(value)"), sessionRefSource.indexOf("  if (window.__CODEX_PLUS_TEST_SESSION_REF__)"));
 
 /** 按名字取分片里的顶层声明源码；找不到就直接失败，避免锚点漂移后静默跳过。 */
 function declaration(name: string): string {
@@ -204,8 +206,8 @@ test("会话 id 只认 composer 上的实时标识，新会话草稿视为无会
   const { codexPlusUsageThreadId } = sandbox(Date.now(), sidebar(null));
   assert.equal(
     codexPlusUsageThreadId(card("local:01a1352f-f8a9-71f2-9ae4-f2de48a74d8d")),
-    "01a1352f-f8a9-71f2-9ae4-f2de48a74d8d",
-    "去掉 local: 前缀后交给宿主",
+    "",
+    "local: 种类前缀还需要物理主机证据",
   );
   assert.equal(
     codexPlusUsageThreadId(card("01a1352f-f8a9-71f2-9ae4-f2de48a74d8d")),
@@ -216,7 +218,7 @@ test("会话 id 只认 composer 上的实时标识，新会话草稿视为无会
   assert.equal(
     sandbox(Date.now(), sidebar("local:01a133b6-fec1-7641-a1d1-f27100cee5b6"))
       .codexPlusUsageThreadId(card(null)),
-    "01a133b6-fec1-7641-a1d1-f27100cee5b6",
+    "",
   );
   // 首页 composer 是 placement=home，侧边栏这时仍选中着上一个 thread，
   // 兜底会把上一个会话的读数挂到新会话上，必须拒绝。
@@ -369,11 +371,12 @@ function renderHarness(language = "zh-CN") {
     value: { textContent: "" }, item: { title: "" },
   }]));
   const state = { node: { isConnected: true, dataset: {}, setAttribute: (key: string, value: string) => attrs.set(key, value) }, parts, lastFingerprint: "", threadId: "thread-a-123", failures: 0 };
-  const render = new Function("document", "navigator", "codexPlusUsageState", [
+  const diagnostics: any[] = [];
+  const render = new Function("document", "navigator", "codexPlusUsageState", "sendCodexPlusDiagnostic", [
     declaration("codexPlusUsageRingCircumference"), declaration("codexPlusUsageText"),
     declaration("codexPlusUsageRender"), "return codexPlusUsageRender;",
-  ].join("\n"))({ documentElement: { lang: language } }, { language }, state);
-  return { render, parts, attrs };
+  ].join("\n"))({ documentElement: { lang: language } }, { language }, state, (event: string, detail: unknown) => diagnostics.push({ event, detail }));
+  return { render, parts, attrs, diagnostics, state };
 }
 
 test("状态栏显示三项计数，计数变化会刷新 DOM，扫描中和不完整记录有明确标识", () => {
@@ -408,6 +411,63 @@ test("远端主机和会话 ID 组成独立缓存键", () => {
     document, () => ({ session_id: id, host_id: "remote-ssh-discovered:dev-kth" }),
   );
   assert.equal(threadId(card), "remote-ssh-discovered:dev-kth\x1f" + id);
+});
+
+function nativeIdentityFixture(options: { host?: string; selected?: boolean; nested?: boolean; draft?: boolean; composerHost?: string; sidebarHost?: string; sidebarId?: string } = {}) {
+  const { host = "remote-ssh-discovered:dev", selected = true, nested = false, draft = false, composerHost = host, sidebarHost = host, sidebarId = "11111111-1111-4111-8111-111111111111" } = options;
+  const id = "11111111-1111-4111-8111-111111111111";
+  const element = (attributes: Record<string, string>, props: any = null): any => ({
+    getAttribute: (name: string) => attributes[name] ?? null,
+    querySelector: () => null,
+    __reactFiber$fixture: { pendingProps: props, return: null },
+  });
+  // 26.1016.61520 原生合同：sidebar key 的 local: 表示会话种类，
+  // SSH 的真实机器仍由 data-...-host-id / 成对 conversationId + hostId 给出。
+  const row = element({ "data-app-action-sidebar-thread-id": `local:${sidebarId}`, "data-app-action-sidebar-thread-host-id": sidebarHost, "data-app-action-sidebar-thread-kind": "local" }, { conversationId: sidebarId, hostId: sidebarHost });
+  const scope = element({ "data-composer-placement": draft ? "home" : "thread" }, { conversationId: id, hostId: composerHost });
+  scope.querySelector = () => ({ getAttribute: () => draft ? `client-new-thread:${id}` : id });
+  const inner = nested ? element({}) : scope;
+  const card = { closest: (selector: string) => selector === "[data-composer-placement]" ? scope : inner };
+  const resolve = new Function("document", "selectors", `${sessionRefHelpers}\n${declaration("codexPlusUsageThreadId")}\nreturn codexPlusUsageThreadId;`)(
+    { querySelector: () => selected ? row : null }, { threadTitle: ".title" },
+  );
+  return { resolve: () => resolve(card), id };
+}
+
+test("当前客户端的 local: 种类前缀与远端物理主机不冲突", () => {
+  const remote = nativeIdentityFixture();
+  assert.equal(remote.resolve(), `remote-ssh-discovered:dev\x1f${remote.id}`);
+  const local = nativeIdentityFixture({ host: "local" });
+  assert.equal(local.resolve(), local.id);
+});
+
+test("嵌套 composer 与隐藏侧栏仍从当前会话的成对元数据识别主机", () => {
+  for (const options of [{ nested: true }, { selected: false }, { nested: true, selected: false }]) {
+    const fixture = nativeIdentityFixture(options);
+    assert.equal(fixture.resolve(), `remote-ssh-discovered:dev\x1f${fixture.id}`);
+  }
+});
+
+test("原生主机证据冲突或新会话草稿不会继承旧会话来源", () => {
+  assert.equal(nativeIdentityFixture({ composerHost: "remote-ssh-discovered:other" }).resolve(), "");
+  assert.equal(nativeIdentityFixture({ draft: true }).resolve(), "");
+  const fixture = nativeIdentityFixture({ selected: false, composerHost: "" });
+  assert.equal(fixture.resolve(), "", "裸 UUID 与 local: 种类标签都不能证明物理主机");
+  const unrelated = nativeIdentityFixture({ sidebarId: "22222222-2222-4222-8222-222222222222", sidebarHost: "remote-ssh-discovered:other" });
+  assert.equal(unrelated.resolve(), `remote-ssh-discovered:dev\x1f${unrelated.id}`, "不相关侧栏不能覆盖当前 composer 的成对归属");
+});
+
+test("真实挂载诊断仅报告阶段变化，不写入会话 UUID 或计数", () => {
+  const ui = renderHarness();
+  const id = "11111111-1111-4111-8111-111111111111";
+  ui.state.threadId = `remote-ssh-discovered:dev\x1f${id}`;
+  ui.render(null);
+  ui.render({ activity: { ...activity(), scan_complete: false } });
+  ui.render({ activity: { ...activity(), cumulative_tokens: 5300000 } });
+  ui.render({ activity: { ...activity(6, 13, 184), cumulative_tokens: 5400000 } });
+  assert.deepEqual(ui.diagnostics.map(row => row.detail.phase), ["waiting", "scanning", "ready"]);
+  assert.deepEqual(ui.diagnostics.at(-1), { event: "usage_statusline_state", detail: { version: 6, phase: "ready", source: "remote", hasTokens: true, mounted: true } });
+  assert.doesNotMatch(JSON.stringify(ui.diagnostics), new RegExp(`${id}|5300000|5400000`));
 });
 
 test("模型与工具计数分别显示，工具输出或更新不影响模型读数", () => {
