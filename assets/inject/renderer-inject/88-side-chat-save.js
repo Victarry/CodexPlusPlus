@@ -423,13 +423,27 @@
       row.setAttribute("data-codex-plus-ext", "side-chat-save");
       row.setAttribute("data-codex-plus-side-save", "true");
       row.className = "no-drag flex shrink-0 items-center justify-end border-b border-primary-outline px-3 py-1";
+      // 原生聊天根节点是 h-full；额外工具栏必须参与同一纵向 flex 分配，
+      // 否则按钮行的高度会叠加到 100% 上，把底部输入框推出面板。
+      // 样式跟随入口销毁，禁用或热重载后不遗留对原生节点的修改。
+      const style = document.createElement("style");
+      style.textContent = `
+        [role="tabpanel"][data-tab-id^="sidechat:"]:has(> [data-codex-plus-side-save]) {
+          display: flex;
+          flex-direction: column;
+        }
+        [role="tabpanel"][data-tab-id^="sidechat:"] > [data-codex-plus-side-save] + * {
+          flex: 1 1 0%;
+          min-height: 0;
+        }
+      `;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "rounded-md px-2 py-1 text-sm text-secondary hover:bg-surface-hover hover:text-default";
       button.textContent = "保存为正式聊天";
       button.title = "将已加载的全部历史保存为独立正式聊天；保留原侧边聊天";
       button.addEventListener("click", () => { void codexSideSaveActivate(panel, button); });
-      row.append(button);
+      row.append(style, button);
       panel.prepend(row);
     }
   }

@@ -157,6 +157,58 @@ test("兼容拓展来自同一分片，新内置版本接管时停止观察器�
   assert.equal(window.__codexPlusSideChatSaveState.builtinVersion, 2);
 });
 
+test("布局样式由按钮行持有，重复扫描不叠加，禁用后完整移除并能重新挂载", () => {
+  class Element {
+    tagName: string;
+    attributes = new Map<string, string>();
+    children: Element[] = [];
+    parent: Element | null = null;
+    className = "";
+    textContent = "";
+    constructor(tagName: string) { this.tagName = tagName; }
+    setAttribute(name: string, value: string) { this.attributes.set(name, value); }
+    getAttribute(name: string) { return this.attributes.get(name) ?? null; }
+    append(...nodes: Element[]) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
+    prepend(node: Element) { node.parent = this; this.children.unshift(node); }
+    querySelector() { return this.children.find(node => node.attributes.has("data-codex-plus-side-save")); }
+    addEventListener() {}
+    remove() {
+      if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
+      this.parent = null;
+    }
+  }
+  const panel = new Element("div"), native = new Element("div");
+  panel.setAttribute("data-tab-id", "sidechat:00000000-0000-4000-8000-000000000001");
+  panel.className = "min-h-0 min-w-0 flex-1 outline-none relative";
+  native.className = "flex h-full min-h-0 min-w-0 flex-col";
+  panel.append(native);
+  const original = [panel.className, native.className, [...panel.attributes], [...native.attributes]];
+  const document = {
+    createElement: (tag: string) => new Element(tag),
+    querySelectorAll: (selector: string) => selector.startsWith('[role="tabpanel"]')
+      ? [panel] : panel.children.filter(node => node.attributes.has("data-codex-plus-side-save")),
+  };
+  const settings = { enhancementsEnabled: true };
+  const scan = new Function("window", "document", "codexPlusBackendSettings",
+    `${source}\nreturn syncCodexSideChatSaveButtons;`)({}, document, settings);
+  scan(); scan();
+  assert.equal(panel.children.length, 2);
+  const row = panel.children[0];
+  assert.deepEqual(row.children.map(node => node.tagName), ["style", "button"]);
+  assert.equal(row.children[1].textContent, "保存为正式聊天");
+  assert.equal(panel.children[1], native);
+  assert.match(row.children[0].textContent, /:has\(> \[data-codex-plus-side-save\]\)/);
+  settings.enhancementsEnabled = false;
+  scan();
+  assert.deepEqual(panel.children, [native]);
+  assert.equal(row.parent, null, "入口移除时其拥有的布局样式也必须离开文档");
+  assert.deepEqual([panel.className, native.className, [...panel.attributes], [...native.attributes]], original);
+  settings.enhancementsEnabled = true;
+  scan();
+  assert.equal(panel.children.length, 2);
+  assert.notEqual(panel.children[0], row);
+});
+
 test("保存使用原主机文件系统，写后核对、私有权限、重复保存和失败重试复用同一目标", async () => {
   const a = api(), snapshot = a.snapshot(conversation(), "ssh:dev"), writes: any[] = [], files = new Map();
   let failResume = true, cached: any;
