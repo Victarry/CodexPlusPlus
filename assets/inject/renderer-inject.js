@@ -14348,7 +14348,7 @@
    * 比侧边栏选中行更贴近「这个输入框属于哪个会话」。侧边栏只作兜底，而且**只在
    * placement=thread 时用**：首页/新会话草稿的 composer 是 placement=home，此时侧边栏
    * 仍选中着上一个 thread，兜底会把上一个会话的读数挂到新会话上。
-   * 新会话草稿的 id 形如 `local:client-new-thread:<uuid>`，还没有 rollout，直接当作无会话。
+   * 临时 id 只有在当前输入框明确关联到正式会话后才能取数；不能借用旧侧栏会话。
    */
   function codexPlusUsageThreadId(card) {
     const root = card?.closest("[data-codex-composer-root]");
@@ -14356,9 +14356,8 @@
     const scope = card?.closest("[data-composer-placement]") || root;
     const inThread = scope?.getAttribute("data-composer-placement") === "thread";
     const selected = document.querySelector('[data-app-action-sidebar-thread-selected="true"][data-app-action-sidebar-thread-id]');
-    const raw = (scope?.querySelector("[data-above-composer-conversation-id]")
-      || root?.querySelector("[data-above-composer-conversation-id]"))?.getAttribute("data-above-composer-conversation-id")
-      || (inThread ? selected?.getAttribute("data-app-action-sidebar-thread-id") : "");
+    const portalId = (scope?.querySelector("[data-above-composer-conversation-id]")
+      || root?.querySelector("[data-above-composer-conversation-id]"))?.getAttribute("data-above-composer-conversation-id") || "";
     const parse = (value) => {
       value = String(value || "").trim();
       if (!value || value.includes("client-new-thread")) return null;
@@ -14369,16 +14368,92 @@
       }
       return null;
     };
-    const current = parse(raw);
+    const temporary = (value) => typeof value === "string"
+      ? value.trim().match(/^(?:local:)?(client-new-thread:[A-Za-z0-9_.-]{8,128})$/)?.[1] || "" : "";
+    // React props 只在本次解析中读取，不缓存 DOM / fiber；原生会保留 clientThreadId
+    // 来维持新会话输入框和 sidebar 的身份，conversationId 则在发送后异步填入。
+    const recordsCache = new Map();
+    const recordsFor = (element) => {
+      if (!element) return [];
+      if (recordsCache.has(element)) return recordsCache.get(element);
+      const records = new Set();
+      const fiberKey = Object.getOwnPropertyNames(element).find((key) => key.startsWith("__reactFiber$"));
+      let fiber = fiberKey ? element[fiberKey] : null;
+      for (let depth = 0; fiber && depth < 16; depth += 1, fiber = fiber.return) {
+        for (const props of [fiber.pendingProps, fiber.memoizedProps, fiber.pendingProps?.children?.props, fiber.memoizedProps?.children?.props]) {
+          for (const record of [props, props?.entry, props?.item, props?.row, props?.threadSummary, props?.thread, props?.target, props?.locator, props?.scope?.value, props?.value, props?.value?.value]) {
+            if (!record || typeof record !== "object") continue;
+            records.add(record);
+            for (const child of [record.summary, record.threadSummary, record.thread, record.target, record.locator]) {
+              if (child && typeof child === "object") records.add(child);
+            }
+          }
+        }
+      }
+      const result = [...records];
+      recordsCache.set(element, result);
+      return result;
+    };
+    const aliases = (record) => [record?.clientThreadId, record?.clientNewThreadId, record?.conversationId, record?.threadId, record?.draftKey, record?.key].map(temporary).filter(Boolean);
+    const realIds = (record) => [record?.conversationId, record?.threadId, record?.id]
+      .map(parse).filter((ref) => ref && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(ref.id)).map((ref) => ref.id);
+    const scopeRecords = [...recordsFor(scope), ...recordsFor(root)];
+    const scopeAliases = new Set(scopeRecords.flatMap(aliases));
+    // 当前 route 可保留临时 ID，即使 portal 尚未挂载；仅接受完整的临时 ID 路径段。
+    if (inThread && typeof window !== "undefined") {
+      try {
+        for (const part of String(window.location?.pathname || "").split("/")) {
+          const alias = temporary(decodeURIComponent(part));
+          if (alias) scopeAliases.add(alias);
+        }
+      } catch (_) {}
+    }
+    const portalAlias = temporary(portalId);
+    if (portalAlias) scopeAliases.add(portalAlias);
+    if (scopeAliases.size > 1) return "";
+    const activeAlias = [...scopeAliases][0] || "";
+    const selectedId = selected?.getAttribute("data-app-action-sidebar-thread-id") || "";
+    const selectedAlias = temporary(selectedId);
+    const selectedRecords = recordsFor(selected);
+    const href = selected?.getAttribute("href") || selected?.querySelector("a")?.getAttribute("href") || "";
+    const linked = parse(href.match(/\/(?:thread|conversation|session)\/([^/?#]+)/)?.[1]);
+    const linkedId = linked && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(linked.id) ? linked : null;
+    const mappingRecords = [...scopeRecords, ...(activeAlias && selectedAlias === activeAlias ? selectedRecords : [])];
+    const mappedIds = new Set();
+    const mappedHosts = new Set();
+    for (const record of mappingRecords) {
+      if (!activeAlias || !aliases(record).includes(activeAlias)) continue;
+      const children = [record, record.summary, record.threadSummary, record.thread, record.target, record.locator];
+      const ids = children.flatMap(realIds);
+      ids.forEach((id) => mappedIds.add(id));
+      if (ids.length && typeof record.hostId === "string" && record.hostId.trim()) mappedHosts.add(record.hostId.trim());
+      for (const child of children) {
+        if (realIds(child).length && typeof child.hostId === "string" && child.hostId.trim()) mappedHosts.add(child.hostId.trim());
+      }
+    }
+    if (activeAlias && selectedAlias === activeAlias && linkedId) mappedIds.add(linkedId.id);
+    let current = parse(portalId);
+    if (mappedIds.size > 1 || current && mappedIds.size === 1 && !mappedIds.has(current.id)) return "";
+    if (!current && activeAlias) {
+      if (mappedIds.size !== 1) return "";
+      current = { id: [...mappedIds][0], host: "" };
+    } else if (!current && !portalId && inThread) {
+      current = parse(selectedId);
+    }
     if (!current) return "";
     const hosts = new Set();
+    mappedHosts.forEach((host) => hosts.add(host));
+    for (const record of [...scopeRecords, ...selectedRecords]) {
+      if (realIds(record).includes(current.id) && typeof record.hostId === "string" && record.hostId.trim()) hosts.add(record.hostId.trim());
+    }
     const keyHost = current.host === "local" ? "" : current.host.replace(/^local:/, "");
     if (keyHost) hosts.add(keyHost);
     let conflict = false;
     if (typeof sessionHostEvidenceFromRow === "function") {
       for (const element of new Set([scope, root, selected])) {
         if (!element) continue;
-        if (element === selected && parse(element.getAttribute("data-app-action-sidebar-thread-id"))?.id !== current.id) continue;
+        if (element === selected && parse(selectedId)?.id !== current.id
+          && linkedId?.id !== current.id && !selectedRecords.some((record) => realIds(record).includes(current.id))) continue;
         const evidence = sessionHostEvidenceFromRow(element, current.id, undefined, { localPrefixIsKind: true });
         conflict ||= evidence.reason === "conflicting";
         if (evidence.hostId) hosts.add(evidence.hostId);
@@ -14571,7 +14646,7 @@
     if (codexPlusUsageState.lastReportedPhase !== reportKey) {
       codexPlusUsageState.lastReportedPhase = reportKey;
       sendCodexPlusDiagnostic("usage_statusline_state", {
-        version: 6, phase, source: sourceHost === "local" ? "local" : "remote",
+        version: 7, phase, source: sourceHost === "local" ? "local" : "remote",
         hasTokens: Number.isSafeInteger(totalTokens) && totalTokens >= 0, mounted: true,
       });
     }
@@ -14626,11 +14701,12 @@
   /** 只观察输入框结构和会话标识，忽略状态栏自身的写入，避免自喂循环。 */
   function codexPlusUsageObserve() {
     if (!document.body || typeof MutationObserver !== "function") return;
-    const selector = "[data-codex-composer-root], [data-composer-surface-variant], [data-above-composer-conversation-id]";
+    const selector = "[data-codex-composer-root], [data-composer-surface-variant], [data-above-composer-conversation-id], [data-app-action-sidebar-thread-id]";
     codexPlusUsageState.observer = new MutationObserver((records) => {
       const relevant = records.some((record) => {
         if (record.target?.closest?.("[data-codex-plus-ext]")) return false;
-        if (record.type === "attributes") return true;
+        if (record.type === "attributes") return record.attributeName !== "href"
+          || !!record.target?.closest?.("[data-app-action-sidebar-thread-id]");
         return [...record.addedNodes, ...record.removedNodes].some((node) =>
           node.nodeType === 1 && !node.matches?.("[data-codex-plus-ext]")
           && (node.matches?.(selector) || node.querySelector?.(selector)));
@@ -14647,6 +14723,7 @@
         "data-above-composer-conversation-id", "data-composer-placement",
         "data-app-action-sidebar-thread-selected", "data-app-action-sidebar-thread-id",
         "data-app-action-sidebar-thread-host-id",
+        "href",
       ],
     });
   }
@@ -14734,7 +14811,7 @@
   codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 6,
+    version: 7,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;

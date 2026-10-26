@@ -14,7 +14,7 @@
 - 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-remote-identity-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
+应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-new-session-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -78,6 +78,8 @@ node --test apps/codex-plus-manager/src/usage-statusline.test.ts
 前端缓存及请求按 `(host_id, session_id)` 隔离；来源显示在状态栏悬浮提示中。断线时保留对应会话的最近读数并标记，重连后继续读取。模型 / 工具口径复用本机 Rust 计数器；TPS 仍是用量事件间隔估算，并非服务端纯解码速度。原来的 `session-token-counter.js` 扩展应在检测到原生 `[data-usage="tokens"]` 时让位，避免显示两份累计用量。
 
 当前客户端 sidebar 的 `local:<uuid>` 是会话种类键，SSH 也使用该格式；统计栏从成对的会话 ID 与物理 `hostId` 识别来源，不能把 `local:` 当作本机证据。嵌套 composer 从当前 form 获取 portal；侧栏隐藏时也可使用当前 composer 的成对元数据。冲突和新会话草稿仍拒绝取数。此兼容模式只由统计栏显式启用，其他会话操作保留原有冲突策略。
+
+新会话发送后，原生客户端可能继续保留 `client-new-thread:…` 作为输入框或侧栏的稳定键。统计栏通过当前输入框 / route 的临时身份，与同一条元数据中的 `clientThreadId + conversationId + hostId` 建立正式会话关联；同时兼容原生 sidebar 的 `{key, summary: {id, hostId}}` 条目及指向正式 UUID 的链接。没有明确关联时不借用旧选中行或把临时 ID 后半段当成正式 UUID。已有轮询会重新读取元数据，侧栏插入及链接更新也触发刷新，无需重新打开聊天。
 
 本机诊断日志 `renderer.usage_statusline_state` 只记录每次会话的 waiting / scanning / ready 阶段、主机类别和是否已有 token，不记录 UUID、提示词或工具正文，可用于区分取数测试与真实窗口挂载。
 

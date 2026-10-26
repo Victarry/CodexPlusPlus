@@ -233,7 +233,7 @@ test("会话 id 只认 composer 上的实时标识，新会话草稿视为无会
   assert.equal(codexPlusUsageThreadId(undefined), "");
 });
 
-function lifecycle() {
+function lifecycle(identity?: () => string) {
   const node = { isConnected: true, previousElementSibling: null as unknown, dataset: {} as Record<string, string> };
   let current = { id: "thread-a-123", card: {} };
   const renders: any[] = [];
@@ -241,6 +241,7 @@ function lifecycle() {
   let rejectRequest: (error: Error) => void = () => {};
   let requestedId = "";
   let requestedHost = "local";
+  const requests: Array<{ session_id: string; host_id: string }> = [];
   const source = [
     ...["codexPlusUsageState", "codexPlusUsageStaleMs", "codexPlusUsageIdleIntervalMs",
       "codexPlusUsageActiveIntervalMs", "codexPlusUsageWarmupIntervalMs", "codexPlusUsageFailureLimit",
@@ -252,10 +253,11 @@ function lifecycle() {
   const runtime = new Function("document", "codexPlusUsageEnabled", "codexPlusUsageComposerCard",
     "codexPlusUsageThreadId", "codexPlusUsageEnsureNode", "codexPlusUsageRender",
     "codexPlusUsageSchedule", "postJson", "sendCodexPlusDiagnostic", source)(
-    { hidden: false }, () => true, () => current.card, () => current.id,
+    { hidden: false }, () => true, () => current.card, () => identity ? identity() : current.id,
     (card: unknown) => { node.previousElementSibling = card; return node; },
     (value: unknown) => renders.push(value), () => {},
     (_path: string, payload: { session_id: string; host_id: string }) => {
+      requests.push(payload);
       requestedId = payload.session_id;
       requestedHost = payload.host_id;
       return new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; });
@@ -263,7 +265,7 @@ function lifecycle() {
   );
   runtime.state.node = node;
   return {
-    ...runtime, node, renders,
+    ...runtime, node, renders, requests,
     switchTo(id: string) { current = { id, card: {} }; },
     respond(events: unknown[], activity: unknown = null) { resolveRequest({ status: "ok", session_id: requestedId, host_id: requestedHost, events, activity }); },
     respondFor(sessionId: string, events: unknown[], activity: unknown) { resolveRequest({ status: "ok", session_id: sessionId, host_id: requestedHost, events, activity }); },
@@ -457,6 +459,97 @@ test("原生主机证据冲突或新会话草稿不会继承旧会话来源", ()
   assert.equal(unrelated.resolve(), `remote-ssh-discovered:dev\x1f${unrelated.id}`, "不相关侧栏不能覆盖当前 composer 的成对归属");
 });
 
+function freshIdentityFixture(host = "remote-ssh-discovered:dev") {
+  const id = "33333333-3333-4333-8333-333333333333";
+  const alias = "client-new-thread:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  let portal: string | null = alias;
+  let route = "";
+  const composerProps: any = { clientThreadId: alias, conversationId: null, hostId: host };
+  const rowProps: any = { clientThreadId: alias, conversationId: null, hostId: host };
+  const attrs: Record<string, string> = { "data-app-action-sidebar-thread-id": `local:${alias}`, "data-app-action-sidebar-thread-host-id": host, href: `/thread/${alias}` };
+  const row: any = { getAttribute: (key: string) => attrs[key] ?? null, querySelector: () => null, __reactFiber$fixture: { pendingProps: rowProps, return: null } };
+  const scope: any = { getAttribute: (key: string) => key === "data-composer-placement" ? "thread" : null, querySelector: () => portal === null ? null : ({ getAttribute: () => portal }), __reactFiber$fixture: { pendingProps: composerProps, return: null } };
+  const card = { closest: () => scope };
+  const resolve = new Function("document", "selectors", "window", `${sessionRefHelpers}\n${declaration("codexPlusUsageThreadId")}\nreturn codexPlusUsageThreadId;`)(
+    { querySelector: () => row }, { threadTitle: ".title" }, { get location() { return { pathname: route }; } },
+  );
+  return {
+    id, alias, rowProps, composerProps, attrs,
+    resolve: () => resolve(card),
+    setRoute(pathname: string) { route = pathname; },
+    start(options: { portal?: "temporary" | "canonical" | "missing"; composer?: boolean; sidebar?: boolean } = {}) {
+      portal = options.portal === "canonical" ? id : options.portal === "missing" ? null : alias;
+      composerProps.conversationId = options.composer === false ? null : id;
+      rowProps.conversationId = options.sidebar === false ? null : id;
+    },
+  };
+}
+
+test("新会话保留临时 sidebar key 时，正式 portal 仍能与真实主机配对", () => {
+  const fixture = freshIdentityFixture();
+  fixture.start({ portal: "canonical", composer: false });
+  assert.equal(fixture.resolve(), `remote-ssh-discovered:dev\x1f${fixture.id}`);
+});
+
+test("发送后临时或空 portal 自动解析成对的 clientThreadId 与正式会话 ID", () => {
+  for (const portal of ["temporary", "missing"] as const) {
+    const fixture = freshIdentityFixture();
+    assert.equal(fixture.resolve(), "");
+    fixture.start({ portal });
+    assert.equal(fixture.resolve(), `remote-ssh-discovered:dev\x1f${fixture.id}`);
+  }
+  const nested = freshIdentityFixture(); nested.start({ composer: false, sidebar: false });
+  nested.composerProps.threadSummary = { id: nested.id };
+  assert.equal(nested.resolve(), `remote-ssh-discovered:dev\x1f${nested.id}`, "正式 ID 也可来自同一条关联记录的 threadSummary");
+});
+
+test("新草稿没有正式映射时不借用旧 sidebar，矛盾映射同样拒绝", () => {
+  const draft = freshIdentityFixture();
+  draft.attrs["data-app-action-sidebar-thread-id"] = "local:11111111-1111-4111-8111-111111111111";
+  draft.attrs.href = "/thread/11111111-1111-4111-8111-111111111111";
+  draft.rowProps.conversationId = "11111111-1111-4111-8111-111111111111";
+  draft.rowProps.clientThreadId = "client-new-thread:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  draft.start({ portal: "missing", composer: false, sidebar: false });
+  draft.rowProps.conversationId = "11111111-1111-4111-8111-111111111111";
+  assert.equal(draft.resolve(), "");
+  const conflict = freshIdentityFixture(); conflict.start();
+  conflict.rowProps.conversationId = "22222222-2222-4222-8222-222222222222";
+  assert.equal(conflict.resolve(), "");
+});
+
+test("新会话无需重开：同一输入框从草稿到发送再到统计自动挂载", async () => {
+  const fixture = freshIdentityFixture();
+  const ui = lifecycle(fixture.resolve);
+  await ui.tick();
+  assert.equal(ui.node.dataset.hidden, "true");
+  assert.equal(ui.requests.length, 0);
+  fixture.start({ portal: "missing" });
+  const pending = ui.tick();
+  assert.equal(ui.node.dataset.hidden, "false");
+  assert.deepEqual(ui.requests, [{ session_id: fixture.id, host_id: "remote-ssh-discovered:dev" }]);
+  ui.respond([], { ...activity(1, 1, 1), cumulative_tokens: 23417 });
+  await pending;
+  assert.equal(ui.renders.at(-1).activity.cumulative_tokens, 23417);
+});
+
+test("临时 route 与同一 sidebar 的正式链接可以配对，其他 route 不可借用", () => {
+  const fixture = freshIdentityFixture(); fixture.start({ portal: "missing", composer: false, sidebar: false });
+  delete fixture.composerProps.clientThreadId;
+  delete fixture.rowProps.clientThreadId;
+  fixture.attrs.href = `/thread/${fixture.id}`;
+  fixture.setRoute(`/thread/${encodeURIComponent(fixture.alias)}`);
+  assert.equal(fixture.resolve(), `remote-ssh-discovered:dev\x1f${fixture.id}`);
+  fixture.setRoute("/thread/client-new-thread:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+  assert.equal(fixture.resolve(), "");
+});
+
+test("当前原生 sidebar 的稳定 key 与 summary 正式 ID 能建立新会话映射", () => {
+  const fixture = freshIdentityFixture(); fixture.start({ portal: "missing", composer: false, sidebar: false });
+  delete fixture.rowProps.clientThreadId;
+  fixture.rowProps.entry = { kind: "local", key: `local:${fixture.alias}`, summary: { id: fixture.id, hostId: "remote-ssh-discovered:dev" } };
+  assert.equal(fixture.resolve(), `remote-ssh-discovered:dev\x1f${fixture.id}`);
+});
+
 test("真实挂载诊断仅报告阶段变化，不写入会话 UUID 或计数", () => {
   const ui = renderHarness();
   const id = "11111111-1111-4111-8111-111111111111";
@@ -466,7 +559,7 @@ test("真实挂载诊断仅报告阶段变化，不写入会话 UUID 或计数",
   ui.render({ activity: { ...activity(), cumulative_tokens: 5300000 } });
   ui.render({ activity: { ...activity(6, 13, 184), cumulative_tokens: 5400000 } });
   assert.deepEqual(ui.diagnostics.map(row => row.detail.phase), ["waiting", "scanning", "ready"]);
-  assert.deepEqual(ui.diagnostics.at(-1), { event: "usage_statusline_state", detail: { version: 6, phase: "ready", source: "remote", hasTokens: true, mounted: true } });
+  assert.deepEqual(ui.diagnostics.at(-1), { event: "usage_statusline_state", detail: { version: 7, phase: "ready", source: "remote", hasTokens: true, mounted: true } });
   assert.doesNotMatch(JSON.stringify(ui.diagnostics), new RegExp(`${id}|5300000|5400000`));
 });
 
