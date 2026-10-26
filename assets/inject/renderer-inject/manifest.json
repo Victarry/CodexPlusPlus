@@ -91,6 +91,11 @@
       "lines": 280
     },
     {
+      "name": "88-side-chat-save.js",
+      "description": "将临时侧边聊天保存为可恢复的原生正式聊天，保留私有完整快照",
+      "lines": 442
+    },
+    {
       "name": "89-archive-hosts.js",
       "description": "归档聊天的原生主机选择器，复用 SSH 列表与操作",
       "lines": 101
@@ -123,7 +128,7 @@
     {
       "name": "95-conversation-view.js",
       "description": "会话视图运行时、官方用量策略重写、扫描主循环",
-      "lines": 962
+      "lines": 963
     },
     {
       "name": "96-whale-compat.js",
@@ -138,7 +143,7 @@
     {
       "name": "98-scan-schedule.js",
       "description": "扫描相关性判定与调度，启动重试",
-      "lines": 175
+      "lines": 176
     },
     {
       "name": "98-avatar-overlay-layout.js",

@@ -25,6 +25,7 @@
     return [
       selectors.sidebarThread,
       "#archived-tasks-search",
+      '[role="tabpanel"][data-tab-id^="sidechat:"]',
       '[data-app-action-sidebar-section-heading="Chats"]',
       '[data-app-action-sidebar-section-heading="Projects"]',
       '[data-codex-archive-page-row="true"]',

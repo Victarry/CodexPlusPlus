@@ -911,6 +911,7 @@
   }
 
   function scanDeferred() {
+    runScanStep(syncCodexSideChatSaveButtons);
     runScanStep(syncCodexArchiveHostSelector);
     if (codexPluginMarketplacePatchEnabled()) {
       const pluginUnlockStrategy = codexPluginUnlockStrategy();
