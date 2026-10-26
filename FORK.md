@@ -14,7 +14,7 @@
 - 更新检查与下载入口指向本 fork，防止覆盖回上游原版。发布本 fork 的安装包之前，更新检查可能提示找不到 Release；没有在本次操作中创建 Release。
 - 保留本机已经验证的 macOS 用户数据目录隔离修复及僵尸 worker 识别修复。
 
-应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-new-session-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
+应用版本仍为 1.11.2；「关于」显示无广告 fork，诊断构建标识为 `victarry-archive-hosts-v1.11.2-20261026`。应用标识与配置路径保持原值，以延续现有配置。
 
 ## 构建与验证
 
@@ -88,4 +88,14 @@ node --test apps/codex-plus-manager/src/usage-statusline.test.ts
 ```sh
 cargo test --locked --release -p codex-plus-data --lib remote_usage
 cargo test --locked --release -p codex-plus-launcher --lib restore_
+```
+
+## 远端归档聊天入口
+
+开启增强后，设置 → Archived chats 页的搜索框上方显示「主机」选择器，可切换「本机 / 云端」和当前已连接的 SSH 主机。它调用当前原生设置上下文的 `setSelectedHostId`；列表、分页、项目分组、搜索和取消归档均继续使用该主机的原生处理。主机选择与原生设置的主机范围一致。
+
+实现位于 `89-archive-hosts.js`，只在识别到原生归档搜索框及匹配的 React 上下文时挂载。每次选择重新读取上下文，断开的旧主机不会被选中；没有可用远端、关闭增强或客户端结构不兼容时不显示入口。没有新增后端路由、复制聊天或修改官方应用包。
+
+```sh
+node --test apps/codex-plus-manager/src/archive-hosts.test.ts
 ```

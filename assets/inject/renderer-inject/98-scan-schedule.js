@@ -24,6 +24,7 @@
   function scanRelevantSelector() {
     return [
       selectors.sidebarThread,
+      "#archived-tasks-search",
       '[data-app-action-sidebar-section-heading="Chats"]',
       '[data-app-action-sidebar-section-heading="Projects"]',
       '[data-codex-archive-page-row="true"]',

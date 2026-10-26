@@ -91,6 +91,11 @@
       "lines": 280
     },
     {
+      "name": "89-archive-hosts.js",
+      "description": "归档聊天的原生主机选择器，复用 SSH 列表与操作",
+      "lines": 101
+    },
+    {
       "name": "90-action-groups.js",
       "description": "会话行操作按钮布局、更多菜单、工具提示",
       "lines": 890
@@ -118,7 +123,7 @@
     {
       "name": "95-conversation-view.js",
       "description": "会话视图运行时、官方用量策略重写、扫描主循环",
-      "lines": 961
+      "lines": 962
     },
     {
       "name": "96-whale-compat.js",
@@ -133,7 +138,7 @@
     {
       "name": "98-scan-schedule.js",
       "description": "扫描相关性判定与调度，启动重试",
-      "lines": 174
+      "lines": 175
     },
     {
       "name": "98-avatar-overlay-layout.js",

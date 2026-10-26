@@ -911,6 +911,7 @@
   }
 
   function scanDeferred() {
+    runScanStep(syncCodexArchiveHostSelector);
     if (codexPluginMarketplacePatchEnabled()) {
       const pluginUnlockStrategy = codexPluginUnlockStrategy();
       const settings = codexPlusSettings();
